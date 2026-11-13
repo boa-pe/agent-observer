@@ -1,0 +1,161 @@
+menu "Agent Observer"
+
+    menu "Board: display (ST7789 over SPI)"
+        config AO_LCD_WIDTH
+            int "Logical width (after rotation)"
+            default 172
+        config AO_LCD_HEIGHT
+            int "Logical height (after rotation)"
+            default 320
+        config AO_LCD_PIN_MOSI
+            int "MOSI GPIO"
+            default 6
+        config AO_LCD_PIN_SCLK
+            int "SCLK GPIO"
+            default 7
+        config AO_LCD_PIN_CS
+            int "CS GPIO (-1 if tied low)"
+            range -1 64
+            default 14
+        config AO_LCD_PIN_DC
+            int "DC GPIO"
+            default 15
+        config AO_LCD_PIN_RST
+            int "RST GPIO (-1 if not connected)"
+            range -1 64
+            default 21
+        config AO_LCD_PIN_BL
+            int "Backlight GPIO (-1 if always on)"
+            range -1 64
+            default 22
+        config AO_LCD_BL_ACTIVE_HIGH
+            bool "Backlight is active high"
+            default y
+        config AO_LCD_PCLK_MHZ
+            int "SPI pixel clock (MHz)"
+            range 1 80
+            default 40
+        config AO_LCD_X_GAP
+            int "Column offset (x gap)"
+            default 34
+        config AO_LCD_Y_GAP
+            int "Row offset (y gap)"
+            default 0
+        config AO_LCD_INVERT_COLOR
+            bool "Invert colors"
+            default y
+        config AO_LCD_BGR
+            bool "Panel uses BGR element order"
+            default n
+        config AO_LCD_SWAP_XY
+            bool "Swap X/Y (rotate 90 degrees)"
+            default n
+        config AO_LCD_MIRROR_X
+            bool "Mirror X"
+            default n
+        config AO_LCD_MIRROR_Y
+            bool "Mirror Y"
+            default n
+    endmenu
+
+    menu "Board: status LED"
+        choice AO_LED_TYPE
+            prompt "LED type"
+            default AO_LED_WS2812
+            config AO_LED_WS2812
+                bool "Addressable (WS2812 / SK6812)"
+            config AO_LED_GPIO_RGB
+                bool "Discrete RGB LED on 3 GPIOs (PWM)"
+            config AO_LED_NONE
+                bool "No LED"
+        endchoice
+        config AO_LED_WS2812_GPIO
+            int "Addressable LED data GPIO"
+            depends on AO_LED_WS2812
+            default 8
+        choice AO_LED_WS2812_ORDER
+            prompt "Addressable LED color order"
+            depends on AO_LED_WS2812
+            default AO_LED_WS2812_ORDER_RGB
+            help
+                Byte order the LED expects. Classic WS2812B parts use GRB; the LED on the
+                Waveshare ESP32-C6-LCD-1.47 uses RGB. If red and green appear swapped, change this.
+            config AO_LED_WS2812_ORDER_RGB
+                bool "RGB"
+            config AO_LED_WS2812_ORDER_GRB
+                bool "GRB"
+        endchoice
+        config AO_LED_PIN_R
+            int "Red GPIO"
+            depends on AO_LED_GPIO_RGB
+            default 0
+        config AO_LED_PIN_G
+            int "Green GPIO"
+            depends on AO_LED_GPIO_RGB
+            default 1
+        config AO_LED_PIN_B
+            int "Blue GPIO"
+            depends on AO_LED_GPIO_RGB
+            default 2
+        config AO_LED_ACTIVE_LOW
+            bool "Discrete LED is active low (common anode)"
+            depends on AO_LED_GPIO_RGB
+            default n
+        config AO_LED_BRIGHTNESS
+            int "LED brightness (1-255)"
+            range 1 255
+            default 48
+    endmenu
+
+    menu "Board: user button"
+        config AO_BUTTON_GPIO
+            int "Button GPIO"
+            default 9
+        config AO_BUTTON_ACTIVE_LOW
+            bool "Button is active low (pressed = 0)"
+            default y
+    endmenu
+
+    menu "Behaviour"
+        config AO_HOSTNAME
+            string "Hostname (mDNS: <hostname>.local)"
+            default "agent-observer"
+        config AO_AP_SSID_PREFIX
+            string "Setup access point SSID prefix"
+            default "AgentObserver"
+        config AO_AP_PASSWORD
+            string "Setup access point password (empty = open, else min 8 chars)"
+            default ""
+        config AO_SETUP_WINDOW_MS
+            int "Boot window in which holding the button enters setup (ms)"
+            default 3000
+        config AO_SETUP_HOLD_MS
+            int "How long the button must be held in the boot window (ms)"
+            default 1000
+        config AO_LONG_PRESS_SETUP_MS
+            int "Long press during normal operation enters setup (ms, 0 = disabled)"
+            default 6000
+        config AO_MAX_AGENTS
+            int "Maximum number of agents"
+            range 1 16
+            default 8
+        config AO_STALE_TIMEOUT_MIN
+            int "Mark agent offline after this many minutes without events (0 = never)"
+            default 120
+        config AO_MANUAL_OVERRIDE_S
+            int "After a button press, wait this long before auto-switching to a waiting agent (s)"
+            default 15
+        config AO_STOP_IS_WAITING
+            bool "Treat 'agent finished its turn' (Stop) as waiting for user instead of idle"
+            default n
+        choice AO_LED_MODE
+            prompt "LED shows"
+            default AO_LED_MODE_AGGREGATE
+            config AO_LED_MODE_AGGREGATE
+                bool "Most urgent state of all agents (waiting > working > idle)"
+            config AO_LED_MODE_DISPLAYED
+                bool "State of the currently displayed agent"
+        endchoice
+    endmenu
+
+endmenu

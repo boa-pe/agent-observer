@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Observer</title>
+<style>
+  :root { --bg:#0b1020; --card:#151b2e; --line:#26304a; --text:#e8ecf4; --muted:#8a94a8;
+          --idle:#34d048; --working:#f03a2e; --waiting:#ffd400; --error:#ff3d9a; --offline:#7a8496;
+          --claude:#d97757; --copilot:#7c6cf0; --other:#2bb3a3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 48px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  h1 { font-size:22px; margin:0; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+  .agent { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .agent:last-child { border-bottom:0; }
+  .dot { width:14px; height:14px; border-radius:50%; }
+  .dot.waiting { animation:blink .8s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .name { font-weight:600; font-size:16px; overflow-wrap:anywhere; }
+  .meta { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+  .kind { font-size:11px; font-weight:700; letter-spacing:.05em; padding:2px 7px; border-radius:6px; margin-left:6px; vertical-align:2px; color:#0b1020; }
+  .state { font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:.06em; }
+  .shown { font-size:11px; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:1px 6px; margin-left:6px; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  button, select, input { font:inherit; color:var(--text); }
+  button { background:#1d2540; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:#3a4766; }
+  button.primary { background:var(--waiting); color:#1b1400; border:0; font-weight:700; padding:9px 14px; }
+  button.danger:hover { border-color:var(--working); color:var(--working); }
+  input, select { background:#0f1424; border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:100%; }
+  form.add { display:grid; grid-template-columns:1.4fr 1fr 1fr auto; gap:8px; align-items:end; }
+  form.add label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  @media (max-width:640px) { form.add { grid-template-columns:1fr 1fr; } .agent { grid-template-columns:auto 1fr; } .actions { grid-column:1 / -1; justify-content:flex-start; } }
+  .err { color:var(--working); font-size:13px; min-height:18px; margin-top:8px; }
+  pre { background:#0f1424; border:1px solid var(--line); border-radius:10px; padding:12px; overflow:auto; font-size:12px; line-height:1.4; margin:8px 0 0; max-height:340px; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 0; }
+  .tabs button.on { background:var(--text); color:var(--bg); }
+  .empty { color:var(--muted); padding:8px 0; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row select { width:auto; }
+  dialog { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; padding:16px; width:min(420px, 92vw); }
+  dialog::backdrop { background:#0008; }
+  dialog label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+  form.ota { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; align-items:end; }
+  form.ota label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  form.ota .wide { grid-column:1 / -1; }
+  form.ota label.check { display:flex; gap:8px; align-items:center; font-size:14px; color:var(--text); margin:0; }
+  input[type=checkbox] { width:auto; accent-color:var(--waiting); }
+  @media (max-width:640px) { form.ota { grid-template-columns:1fr; } }
+  .ota-state { font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:.06em; }
+  .bar { height:6px; background:#0f1424; border:1px solid var(--line); border-radius:4px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; width:0; background:var(--waiting); transition:width .3s; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Agent Observer</h1>
+      <div class="muted" id="dev">&nbsp;</div>
+    </div>
+    <button id="setup">Wi-Fi setup...</button>
+  </header>
+
+  <section class="card">
+    <h2>Monitored agents</h2>
+    <div id="agents"><div class="empty">Loading...</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Add agent</h2>
+    <form class="add" id="add">
+      <div><label for="a-name">Display name</label><input id="a-name" maxlength="31" required placeholder="Backend refactor"></div>
+      <div><label for="a-id">ID (used in hook URL)</label><input id="a-id" maxlength="15" required pattern="[A-Za-z0-9_\-]{1,15}" placeholder="backend"></div>
+      <div><label for="a-kind">Type</label><select id="a-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="other">Other</option></select></div>
+      <div><button class="primary" type="submit">Add</button></div>
+    </form>
+    <div class="err" id="add-err"></div>
+  </section>
+
+  <section class="card">
+    <h2>Connect an agent</h2>
+    <div class="muted">Hooks report agent activity to this device. Pick an agent and copy the configuration.</div>
+    <div class="row" style="margin-top:10px">
+      <select id="hook-agent"></select>
+      <select id="hook-host"></select>
+    </div>
+    <div class="tabs" id="tabs">
+      <button data-t="claude" class="on">Claude Code</button>
+      <button data-t="vscode">VS Code Copilot</button>
+      <button data-t="copilot-cli">Copilot CLI</button>
+      <button data-t="curl">Manual / curl</button>
+    </div>
+    <div class="muted" id="hook-help" style="margin-top:10px"></div>
+    <pre id="hook-code"></pre>
+    <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span class="muted" id="copied"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Wi-Fi networks</h2>
+    <div class="muted">Up to 5 networks. The device joins the preferred one when it is in range, otherwise the strongest saved network; changes apply without a restart.</div>
+    <div id="wifis" style="margin-top:8px"></div>
+    <form class="add" id="wifi-add" style="margin-top:12px; grid-template-columns:1.2fr 1.2fr auto auto">
+      <div><label for="w-ssid">Network name (SSID)</label><input id="w-ssid" maxlength="32" required autocomplete="off"></div>
+      <div><label for="w-pw">Password (empty = open)</label><input id="w-pw" type="password" maxlength="63" autocomplete="new-password"></div>
+      <div><label class="check" style="display:flex;gap:6px;align-items:center;margin-bottom:10px"><input type="checkbox" id="w-pref" style="width:auto"> Preferred</label></div>
+      <div><button class="primary" type="submit">Save</button></div>
+    </form>
+    <div class="err" id="w-err"></div>
+  </section>
+
+  <section class="card">
+    <h2>Firmware update</h2>
+    <div class="muted" id="ota-cur">&nbsp;</div>
+    <div class="muted" id="ota-slots" style="margin-top:4px">&nbsp;</div>
+    <form class="ota" id="ota" style="margin-top:12px">
+      <div class="wide">
+        <label for="o-url">Update source</label>
+        <input id="o-url" maxlength="255" placeholder="https://github.com/owner/repo/releases">
+        <div class="muted" style="margin-top:4px">GitHub repository or releases page (newest release, matching <code>.bin</code> asset),
+          a JSON manifest <code>{"version":"1.2.0","url":"https://…/app.bin"}</code>, or a direct <code>.bin</code> link.</div>
+      </div>
+      <div>
+        <label for="o-asset">Asset name contains (optional)</label>
+        <input id="o-asset" maxlength="47" placeholder="auto: *.bin matching the chip">
+      </div>
+      <div>
+        <label for="o-int">Check every</label>
+        <select id="o-int">
+          <option value="1">1 hour</option><option value="6">6 hours</option><option value="12">12 hours</option>
+          <option value="24">day</option><option value="72">3 days</option><option value="168">week</option>
+        </select>
+      </div>
+      <div class="wide"><label class="check"><input type="checkbox" id="o-auto"> Check periodically and install updates automatically</label></div>
+      <div class="wide row">
+        <button class="primary" type="submit">Save</button>
+        <button type="button" id="o-check">Check now</button>
+        <button type="button" id="o-update">Update now</button>
+        <button type="button" class="danger" id="o-rollback" hidden>Roll back</button>
+      </div>
+    </form>
+    <div style="margin-top:12px"><span class="ota-state" id="o-state"></span> <span class="muted" id="o-msg"></span></div>
+    <div class="bar" id="o-bar" hidden><div id="o-prog"></div></div>
+    <div class="err" id="o-err"></div>
+  </section>
+</main>
+
+<dialog id="edit">
+  <form method="dialog" id="edit-form">
+    <h2>Edit agent</h2>
+    <label for="e-name">Display name</label><input id="e-name" maxlength="31" required>
+    <label for="e-kind">Type</label>
+    <select id="e-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="other">Other</option></select>
+    <div class="row" style="margin-top:16px; justify-content:flex-end">
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button class="primary" value="ok">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KIND_LABEL = { claude:'CLAUDE', copilot:'COPILOT', other:'AGENT' };
+let agents = [], status = {}, tab = 'claude', editing = null;
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function ago(s) {
+  if (s < 0) return 'never';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  return Math.floor(s / 3600) + 'h ' + Math.floor(s / 60) % 60 + 'm';
+}
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.entries(props).forEach(([k, v]) => k === 'style' ? e.style.cssText = v : e[k] = v);
+  kids.forEach(k => e.append(k));
+  return e;
+}
+
+function render() {
+  const box = $('agents');
+  box.innerHTML = '';
+  if (!agents.length) {
+    box.append(el('div', { className:'empty', textContent:'No agents yet. Add one below, then connect it with a hook.' }));
+  }
+  agents.forEach((a, i) => {
+    const dot = el('div', { className:'dot ' + a.state, style:'background:var(--' + a.state + ')' });
+    const kind = el('span', { className:'kind', textContent:KIND_LABEL[a.kind] || a.kind, style:'background:var(--' + a.kind + ')' });
+    const name = el('div', { className:'name' }, a.name, kind);
+    if (a.displayed) name.append(el('span', { className:'shown', textContent:'on screen' }));
+    const st = el('span', { className:'state', textContent:a.state, style:'color:var(--' + a.state + ')' });
+    const meta = el('div', { className:'meta' }, st, (a.restored ? ' (restored after restart, waiting for the next event)' : ' for ' + ago(a.state_age_s) + (a.detail ? ' · ' + a.detail : '')) +
+      ' · id: ' + a.id + ' · last event: ' + (a.last_event_age_s < 0 ? 'never' : ago(a.last_event_age_s) + ' ago'));
+    const up = el('button', { textContent:'↑', title:'Move up', disabled: i === 0, onclick: () => act(() => api('PUT', '/api/agents/' + a.id, { move:-1 })) });
+    const dn = el('button', { textContent:'↓', title:'Move down', disabled: i === agents.length - 1, onclick: () => act(() => api('PUT', '/api/agents/' + a.id, { move:1 })) });
+    const ed = el('button', { textContent:'Edit', onclick: () => openEdit(a) });
+    const hk = el('button', { textContent:'Hooks', onclick: () => { $('hook-agent').value = a.id; renderHook(); $('hook-code').scrollIntoView({ behavior:'smooth', block:'center' }); } });
+    const del = el('button', { className:'danger', textContent:'Delete', onclick: () => { if (confirm('Delete "' + a.name + '"?')) act(() => api('DELETE', '/api/agents/' + a.id)); } });
+    box.append(el('div', { className:'agent' }, dot, el('div', {}, name, meta), el('div', { className:'actions' }, up, dn, ed, hk, del)));
+  });
+
+  const sel = $('hook-agent'), cur = sel.value;
+  sel.innerHTML = '';
+  agents.forEach(a => sel.append(el('option', { value:a.id, textContent:a.name + ' (' + a.id + ')' })));
+  if (!agents.length) sel.append(el('option', { value:'my-agent', textContent:'(add an agent first)' }));
+  if (agents.some(a => a.id === cur)) sel.value = cur;
+}
+
+async function act(fn) {
+  try { await fn(); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+function openEdit(a) {
+  editing = a.id;
+  $('e-name').value = a.name;
+  $('e-kind').value = a.kind;
+  $('edit').showModal();
+}
+$('edit').addEventListener('close', () => {
+  if ($('edit').returnValue === 'ok' && editing) {
+    act(() => api('PUT', '/api/agents/' + editing, { name:$('e-name').value, kind:$('e-kind').value }));
+  }
+  editing = null;
+});
+
+async function refresh() {
+  try {
+    const j = await api('GET', '/api/agents');
+    agents = j.agents;
+    render();
+  } catch (e) { /* device busy / offline: keep last view */ }
+}
+
+async function loadStatus() {
+  try {
+    status = await api('GET', '/api/status');
+    $('dev').textContent = status.hostname + '.local · ' + status.ip + ' · ' + status.ssid + ' (' + status.rssi + ' dBm) · fw ' + status.version;
+    const hs = $('hook-host'), cur = hs.value;
+    hs.innerHTML = '';
+    hs.append(el('option', { value:status.hostname + '.local', textContent:'Use ' + status.hostname + '.local' }));
+    hs.append(el('option', { value:status.ip, textContent:'Use IP ' + status.ip }));
+    if (cur) hs.value = cur;
+    renderHook();
+  } catch (e) {}
+}
+
+$('a-name').addEventListener('input', () => {
+  if ($('a-id').dataset.touched) return;
+  $('a-id').value = $('a-name').value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 15);
+});
+$('a-id').addEventListener('input', () => { $('a-id').dataset.touched = '1'; });
+$('add').onsubmit = async (e) => {
+  e.preventDefault();
+  $('add-err').textContent = '';
+  try {
+    await api('POST', '/api/agents', { name:$('a-name').value.trim(), id:$('a-id').value.trim(), kind:$('a-kind').value });
+    $('hook-agent').value = $('a-id').value.trim();
+    $('a-name').value = ''; $('a-id').value = ''; delete $('a-id').dataset.touched;
+    await refresh();
+    renderHook();
+  } catch (err) { $('add-err').textContent = err.message; }
+};
+
+$('setup').onclick = async () => {
+  if (!confirm('Restart into Wi-Fi setup mode? The device will open its own access point until new credentials are saved (or it is power-cycled).')) return;
+  try { await api('POST', '/api/setup'); alert('Restarting into setup mode. Join the AgentObserver-XXXX network.'); } catch (e) { alert(e.message); }
+};
+
+/* ---------- hook snippets ---------- */
+const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStop', 'SessionEnd'];
+const VSCODE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'SubagentStart', 'SubagentStop', 'Stop'];
+const COPILOT_CLI_EVENTS = ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'postToolUse', 'errorOccurred', 'sessionEnd'];
+const TOOL_EVENTS = ['PreToolUse', 'PostToolUse', 'PermissionRequest'];
+
+function hookUrl(ev) { return 'http://' + ($('hook-host').value || location.host) + '/api/hook/' + $('hook-agent').value + '?event=' + ev; }
+function curlCmd(ev) { return 'curl -s -m 2 --connect-timeout 1 -X POST -H "Content-Type: application/json" --data-binary @- "' + hookUrl(ev) + '" >/dev/null 2>&1 || true'; }
+
+function renderHook() {
+  let code = '', help = '';
+  if (tab === 'claude' || tab === 'vscode') {
+    const evs = tab === 'claude' ? CLAUDE_EVENTS : VSCODE_EVENTS;
+    const hooks = {};
+    evs.forEach(ev => {
+      const entry = { hooks: [{ type:'command', command: curlCmd(ev), timeout: 5 }] };
+      if (TOOL_EVENTS.includes(ev)) entry.matcher = '*';
+      hooks[ev] = [entry];
+    });
+    code = JSON.stringify({ hooks }, null, 2);
+    help = tab === 'claude'
+      ? 'Merge into ~/.claude/settings.json (all sessions) or <project>/.claude/settings.json (one project). Uses curl; on Windows Claude Code runs hooks through Git Bash.'
+      : 'Save as <project>/.github/hooks/agent-observer.json (VS Code agent hooks, Claude-compatible format). Tool approvals in VS Code do not fire a hook, so "waiting" is shown for question tools only.';
+  } else if (tab === 'copilot-cli') {
+    const hooks = {};
+    COPILOT_CLI_EVENTS.forEach(ev => {
+      hooks[ev] = [{ type:'command',
+        bash: curlCmd(ev),
+        powershell: '$input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H "Content-Type: application/json" --data-binary "@-" "' + hookUrl(ev) + '" | Out-Null',
+        timeoutSec: 5 }];
+    });
+    code = JSON.stringify({ version: 1, hooks }, null, 2);
+    help = 'Save as <repo>/.github/hooks/agent-observer.json for GitHub Copilot CLI.';
+  } else {
+    const base = 'http://' + ($('hook-host').value || location.host);
+    const id = $('hook-agent').value;
+    code = '# set a state directly (offline | idle | working | waiting | error)\n' +
+      'curl -X POST "' + base + '/api/state/' + id + '?state=working"\n' +
+      'curl -X POST -H "Content-Type: application/json" -d \'{"state":"waiting","detail":"approve deploy?"}\' ' + base + '/api/state/' + id + '\n\n' +
+      '# forward any hook payload (event taken from ?event= or the JSON field hook_event_name)\n' +
+      'echo \'{"hook_event_name":"Stop"}\' | curl -X POST --data-binary @- ' + base + '/api/hook/' + id + '\n\n' +
+      '# list agents and their states\n' +
+      'curl ' + base + '/api/agents';
+    help = 'Any script can report state via the REST API.';
+  }
+  $('hook-help').textContent = help;
+  $('hook-code').textContent = code;
+}
+
+$('tabs').onclick = (e) => {
+  if (!e.target.dataset.t) return;
+  tab = e.target.dataset.t;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b === e.target));
+  renderHook();
+};
+$('hook-agent').onchange = renderHook;
+$('hook-host').onchange = renderHook;
+$('copy').onclick = async () => {
+  const text = $('hook-code').textContent;
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) { const r = document.createRange(); r.selectNodeContents($('hook-code')); getSelection().removeAllRanges(); getSelection().addRange(r); document.execCommand('copy'); }
+  $('copied').textContent = 'Copied'; setTimeout(() => $('copied').textContent = '', 1500);
+};
+
+/* ---------- Wi-Fi networks ---------- */
+function renderWifi(j) {
+  const box = $('wifis');
+  box.innerHTML = '';
+  if (!j.networks.length) box.append(el('div', { className:'empty', textContent:'No saved networks.' }));
+  j.networks.forEach(n => {
+    const name = el('div', { className:'name' }, n.ssid);
+    if (n.connected) name.append(el('span', { className:'shown', textContent:'connected' }));
+    if (n.preferred) name.append(el('span', { className:'shown', textContent:'★ preferred' }));
+    const meta = el('div', { className:'meta', textContent: n.secure ? 'password saved' : 'open network' });
+    const pref = el('button', { textContent: n.preferred ? 'Unprefer' : 'Prefer',
+      onclick: () => wifiCall('/api/wifi/networks', { ssid:n.ssid, preferred:!n.preferred }) });
+    const del = el('button', { className:'danger', textContent:'Delete', onclick: () => {
+      if (j.networks.length === 1 && !confirm('This is the only saved network. Without it the device starts the setup access point after the next restart. Delete?')) return;
+      if (n.connected && j.networks.length > 1 && !confirm('The device stays connected to "' + n.ssid + '" until the connection drops. Delete?')) return;
+      wifiCall('/api/wifi/networks/delete', { ssid:n.ssid });
+    } });
+    box.append(el('div', { className:'agent', style:'grid-template-columns:1fr auto' }, el('div', {}, name, meta), el('div', { className:'actions' }, pref, del)));
+  });
+  $('wifi-add').querySelector('button').disabled = j.networks.length >= j.max;
+}
+async function wifiCall(url, body) {
+  $('w-err').textContent = '';
+  try { renderWifi(await api('POST', url, body)); return true; } catch (e) { $('w-err').textContent = e.message; return false; }
+}
+async function loadWifi() { try { renderWifi(await api('GET', '/api/wifi/networks')); } catch (e) {} }
+$('wifi-add').onsubmit = async (e) => {
+  e.preventDefault();
+  if (await wifiCall('/api/wifi/networks', { ssid:$('w-ssid').value, password:$('w-pw').value, preferred:$('w-pref').checked })) {
+    $('w-ssid').value = ''; $('w-pw').value = ''; $('w-pref').checked = false;
+  }
+};
+
+/* ---------- firmware update ---------- */
+const OTA_STATE = { idle:['idle','--muted'], checking:['checking','--waiting'], up_to_date:['up to date','--idle'],
+  available:['update available','--waiting'], downloading:['downloading','--waiting'], rebooting:['rebooting','--idle'], error:['error','--working'] };
+let otaTimer = null, otaDirty = false;
+
+function dur(s) { return s < 3600 ? Math.max(1, Math.round(s / 60)) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days'; }
+
+function renderOta(o) {
+  const c = o.config, s = o.status;
+  if (!otaDirty) {
+    $('o-url').value = c.url; $('o-asset').value = c.asset; $('o-auto').checked = c.auto_update;
+    const iv = $('o-int');
+    if (![...iv.options].some(op => +op.value === c.interval_h)) iv.append(el('option', { value:c.interval_h, textContent:c.interval_h + ' hours' }));
+    iv.value = c.interval_h;
+  }
+  $('ota-cur').textContent = 'Running ' + s.project + ' ' + s.current + ' (' + s.target + ', slot ' + s.partition + ')' +
+    (s.latest ? ' · latest at source: ' + s.latest : '') +
+    (s.last_check_s >= 0 ? ' · checked ' + dur(s.last_check_s) + ' ago' : '') +
+    (s.next_check_s >= 0 ? ' · next check in ' + dur(s.next_check_s) : '');
+  const [label, color] = OTA_STATE[s.state] || [s.state, '--muted'];
+  $('o-state').textContent = label;
+  $('o-state').style.color = 'var(' + color + ')';
+  $('o-msg').textContent = s.message;
+  $('o-bar').hidden = s.state !== 'downloading';
+  $('o-prog').style.width = s.progress + '%';
+  const busy = ['checking', 'downloading', 'rebooting'].includes(s.state);
+  $('o-check').disabled = $('o-update').disabled = busy || !c.url || otaDirty;
+  $('o-update').textContent = s.state === 'available' ? 'Install ' + s.latest : 'Update now';
+  const prev = (s.slots || []).find(x => !x.running && x.version && ['valid', 'new'].includes(x.state));
+  $('ota-slots').textContent = 'Slots: ' + (s.slots || []).map(x => x.label + ' ' + (x.version || '(empty)') +
+    ' [' + (x.running ? 'running, ' : '') + x.state + ']').join(' · ') +
+    (s.bad ? ' · not auto-installing ' + s.bad + ' (failed before)' : '');
+  $('o-rollback').hidden = !s.rollback_possible || !prev;
+  $('o-rollback').disabled = busy;
+  if (prev) $('o-rollback').textContent = 'Roll back to ' + prev.version;
+  clearTimeout(otaTimer);
+  if (s.state === 'rebooting') { otaTimer = setTimeout(() => location.reload(), 15000); return; }
+  otaTimer = setTimeout(loadOta, busy ? 1000 : 15000);
+}
+
+async function loadOta() {
+  try { renderOta(await api('GET', '/api/ota')); }
+  catch (e) { clearTimeout(otaTimer); otaTimer = setTimeout(loadOta, 5000); }
+}
+
+$('ota').onsubmit = async (e) => {
+  e.preventDefault();
+  $('o-err').textContent = '';
+  try {
+    const o = await api('POST', '/api/ota', { url:$('o-url').value.trim(), asset:$('o-asset').value.trim(),
+      auto_update:$('o-auto').checked, interval_h:+$('o-int').value });
+    otaDirty = false;
+    renderOta(o);
+    $('o-err').textContent = 'Saved'; $('o-err').style.color = 'var(--idle)';
+    setTimeout(() => { $('o-err').textContent = ''; $('o-err').style.color = ''; }, 2000);
+  } catch (err) { $('o-err').textContent = err.message; }
+};
+async function otaAction(path, confirmMsg) {
+  $('o-err').textContent = '';
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try { await api('POST', path); setTimeout(loadOta, 300); } catch (err) { $('o-err').textContent = err.message; }
+}
+$('ota').addEventListener('input', () => { otaDirty = true; $('o-check').disabled = $('o-update').disabled = true; });
+$('o-check').onclick = () => otaAction('/api/ota/check');
+$('o-rollback').onclick = () => otaAction('/api/ota/rollback', 'Switch back to the previous firmware and reboot? The current version will not be installed automatically again.');
+$('o-update').onclick = () => otaAction('/api/ota/update', 'Download and install the newest firmware if it is newer than the running one? The device reboots afterwards.');
+
+refresh().then(loadStatus).then(loadOta).then(loadWifi);
+setInterval(loadWifi, 30000);
+setInterval(refresh, 2000);
+setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>

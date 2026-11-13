@@ -1,0 +1,13 @@
+{
+  "_comment": "Merge the `hooks` object into ~/.claude/settings.json or <project>/.claude/settings.json. Replace AGENT_ID with the id configured in the web UI and the host with your device's IP or agent-observer.local. The web UI generates this for you (Connect an agent).",
+  "hooks": {
+    "SessionStart":      [{ "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart\" >/dev/null 2>&1 || true" }] }],
+    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit\" >/dev/null 2>&1 || true" }] }],
+    "PreToolUse":        [{ "matcher": "*", "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse\" >/dev/null 2>&1 || true" }] }],
+    "PostToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse\" >/dev/null 2>&1 || true" }] }],
+    "PermissionRequest": [{ "matcher": "*", "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest\" >/dev/null 2>&1 || true" }] }],
+    "Notification":      [{ "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=Notification\" >/dev/null 2>&1 || true" }] }],
+    "Stop":              [{ "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=Stop\" >/dev/null 2>&1 || true" }] }],
+    "SessionEnd":        [{ "hooks": [{ "type": "command", "timeout": 5, "command": "curl -s -m 2 --connect-timeout 1 -X POST --data-binary @- \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd\" >/dev/null 2>&1 || true" }] }]
+  }
+}
