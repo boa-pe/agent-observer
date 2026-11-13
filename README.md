@@ -14,7 +14,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   gray offline); Claude agents have one antenna and a visor, Copilot agents two antennas and round eyes.
 - **RGB LED**: green = idle, red = working, blinking yellow = waiting for user action,
   fast red = error, breathing blue = no Wi-Fi, breathing cyan = no agents configured.
-  By default the LED shows the most urgent state across *all* agents (configurable).
+  The LED follows the agent on screen, including when you cycle agents with the button
+  (menuconfig can switch it to the most urgent state across *all* agents).
 - **User button**: short press cycles through agents; long press (6 s) enters Wi-Fi setup.
 - **Auto-focus**: an agent that starts waiting for the user is put on screen immediately
   (a manual button selection is respected for 15 s).
@@ -109,7 +110,8 @@ Event mapping:
 | `ErrorOccurred` | error |
 | `SessionEnd` | offline |
 
-Agents with no events for 2 h (configurable) are marked offline.
+Agents with no events for 2 h are marked offline. The timeout (0-240 min, 0 = never) is set in the web UI
+(*Monitored agents* card, *Offline after*) and kept across reboots.
 
 Hooks are push-only, so after a reboot the device cannot ask agents for their state. Instead it
 saves every state change (coalesced over 10 s, and immediately before any software reboot such as
@@ -153,7 +155,8 @@ to switch back manually.
 ### Publishing a release
 
 1. Bump [`version.txt`](version.txt) (e.g. `1.1.0`) – this is the version embedded in the image.
-2. `idf.py build`, then attach `build/agent_observer.bin` to a GitHub release tagged `v1.1.0`.
+2. `idf.py build`, then attach `build/agent_observer.bin` to a GitHub release tagged `v1.1.0`
+   (any prefix works: `release_1.1.0`, `fw-1.1.0`; the first `x.y[.z]` in the tag is the version).
    For several boards, name the assets after the chip, e.g. `agent_observer-esp32c6.bin`,
    `agent_observer-esp32.bin`.
 
@@ -177,6 +180,7 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | DELETE | `/api/agents/<id>` | – |
 | POST | `/api/hook/<id>?event=<Event>` | raw hook JSON (optional); replies with an empty `200` |
 | POST | `/api/state/<id>?state=working&detail=...` | or JSON `{"state":"waiting","detail":".."}` |
+| POST | `/api/agents/settings` | `{"offline_timeout_min":0..240}` mark agents offline after that many minutes without events (0 = never); also reported by `GET /api/agents` |
 | GET | `/api/status` | – |
 | POST | `/api/setup` | reboot into Wi-Fi setup |
 | GET | `/api/wifi/networks` | saved networks (no passwords) |

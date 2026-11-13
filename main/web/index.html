@@ -73,6 +73,12 @@
   <section class="card">
     <h2>Monitored agents</h2>
     <div id="agents"><div class="empty">Loading...</div></div>
+    <div class="slider" style="grid-template-columns:auto auto 1fr; border-top:1px solid var(--line); padding-top:12px">
+      <label for="off-min">Offline after</label>
+      <input type="number" id="off-min" min="0" max="240" step="1" style="width:5.5em" disabled>
+      <span class="muted">minutes without any event from an agent, it is marked offline (0 = never).</span>
+    </div>
+    <div class="err" id="off-err"></div>
   </section>
 
   <section class="card">
@@ -260,6 +266,10 @@ async function refresh() {
     const j = await api('GET', '/api/agents');
     agents = j.agents;
     render();
+    if ('offline_timeout_min' in j && document.activeElement !== $('off-min')) {
+      $('off-min').value = j.offline_timeout_min;
+      $('off-min').disabled = false;
+    }
   } catch (e) { /* device busy / offline: keep last view */ }
 }
 
@@ -409,6 +419,14 @@ $('wifi-add').onsubmit = async (e) => {
 const OTA_STATE = { idle:['idle','--muted'], checking:['checking','--waiting'], up_to_date:['up to date','--idle'],
   available:['update available','--waiting'], downloading:['downloading','--waiting'], rebooting:['rebooting','--idle'], error:['error','--working'] };
 let otaTimer = null, otaDirty = false;
+
+/* ---------- offline timeout ---------- */
+$('off-min').addEventListener('change', async () => {
+  const v = Math.min(240, Math.max(0, Math.round(+$('off-min').value || 0)));
+  $('off-min').value = v;
+  try { $('off-min').value = (await api('POST', '/api/agents/settings', { offline_timeout_min:v })).offline_timeout_min; $('off-err').textContent = ''; }
+  catch (err) { $('off-err').textContent = err.message; }
+});
 
 /* ---------- display ---------- */
 let blTimer = null, blPending = false;

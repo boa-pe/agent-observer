@@ -140,8 +140,12 @@ menu "Agent Observer"
             range 1 16
             default 8
         config AO_STALE_TIMEOUT_MIN
-            int "Mark agent offline after this many minutes without events (0 = never)"
+            int "Default: mark agent offline after this many minutes without events (0 = never)"
+            range 0 240
             default 120
+            help
+                Initial value only; the timeout can be changed at runtime from the web UI
+                (stored in NVS).
         config AO_MANUAL_OVERRIDE_S
             int "After a button press, wait this long before auto-switching to a waiting agent (s)"
             default 15
@@ -150,7 +154,7 @@ menu "Agent Observer"
             default n
         choice AO_LED_MODE
             prompt "LED shows"
-            default AO_LED_MODE_AGGREGATE
+            default AO_LED_MODE_DISPLAYED
             config AO_LED_MODE_AGGREGATE
                 bool "Most urgent state of all agents (waiting > working > idle)"
             config AO_LED_MODE_DISPLAYED

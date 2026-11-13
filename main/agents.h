@@ -62,6 +62,11 @@ esp_err_t agents_set_state(const char *id, agent_state_t st, const char *detail)
 /* Map a Claude Code / Copilot hook event to a state. event may be NULL (then taken from body). */
 esp_err_t agents_handle_hook(const char *id, const char *event, const char *body);
 
+/* Minutes (0..240, 0 = never) without any event after which an agent is marked offline.
+ * Persisted in NVS; the default comes from CONFIG_AO_STALE_TIMEOUT_MIN. */
+esp_err_t agents_set_offline_timeout(int minutes);
+uint8_t agents_get_offline_timeout(void);
+
 /* Button: show next agent. */
 void agents_cycle(void);
 /* Periodic housekeeping (stale timeout, auto-focus on waiting agents, saving states). */
