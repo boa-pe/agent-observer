@@ -89,10 +89,8 @@ reached it keeps retrying with back-off (up to 30 s); use setup mode to add a ne
 The hooks POST the event payload to `http://<device>/api/hook/<id>?event=<Event>`, which answers an empty `200`.
 The generated configuration works unchanged on Windows, Linux and macOS:
 
-- **Claude Code** uses *HTTP hooks* (`"type": "http"`): Claude Code sends the request itself, so no shell or
-  `curl` is involved. The exception is `SessionStart`, which Claude Code only runs as a command hook; it uses
-  `curl` through bash (Git Bash on Windows, which Claude Code needs anyway). Tick *Use curl command hooks* in the
-  web UI for Claude Code versions without HTTP hooks; those run silently through bash and never fail.
+- **Claude Code** uses command hooks (`"type": "command"`) that run `curl` through bash (Git Bash on Windows,
+  which Claude Code needs anyway). They run silently and always exit 0, so an unreachable device never fails a hook.
 - **VS Code / Copilot CLI** hooks carry both a `bash` and a `powershell` command and the host picks the one for its
   platform. The PowerShell variant calls `curl.exe` (plain `curl` is an alias of `Invoke-WebRequest` in Windows
   PowerShell), pipes the hook JSON via `$input`, discards the output with `Out-Null` (curl.exe cannot write to
