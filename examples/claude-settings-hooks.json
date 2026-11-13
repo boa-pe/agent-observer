@@ -1,5 +1,5 @@
 {
-  "_comment": "Claude Code. Merge the `hooks` object into ~/.claude/settings.json or <project>/.claude/settings.json. Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. HTTP hooks need no shell or curl and behave the same on Windows, Linux and macOS; only SessionStart (command hooks only) runs curl via bash (Git Bash on Windows). The web UI generates this for you (Connect an agent) and can emit curl command hooks for all events instead.",
+  "_comment": "Claude Code. Merge the `hooks` object into ~/.claude/settings.json or <project>/.claude/settings.json. Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. All hooks are command hooks running curl via bash (Git Bash on Windows); they are silent and always exit 0. The web UI generates this for you (Connect an agent).",
   "hooks": {
     "SessionStart": [
       {
@@ -16,9 +16,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -27,9 +27,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -38,9 +38,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -49,9 +49,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -60,9 +60,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Notification",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=Notification\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -71,9 +71,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Stop",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=Stop\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -82,9 +82,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -93,9 +93,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd",
-            "timeout": 3
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }

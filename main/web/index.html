@@ -99,7 +99,6 @@
       <button data-t="copilot-cli">Copilot CLI</button>
       <button data-t="curl">Manual / curl</button>
     </div>
-    <div class="muted" id="claude-opts" style="margin-top:8px"><label><input type="checkbox" id="claude-curl"> Use curl command hooks instead of HTTP hooks (older Claude Code, or to keep failures silent)</label></div>
     <div class="muted" id="hook-help" style="margin-top:10px"></div>
     <pre id="hook-code"></pre>
     <div class="row" style="margin-top:8px"><button id="copy">Copy</button><span class="muted" id="copied"></span></div>
@@ -300,11 +299,9 @@ $('setup').onclick = async () => {
 };
 
 /* ---------- hook snippets ---------- */
-/* Claude Code: HTTP hooks (no shell involved, so identical on Windows/Linux/macOS) for every event except
-   SessionStart, which Claude Code only runs as a command hook. VS Code / Copilot CLI: a curl command in two
-   flavours, `bash` (Linux, macOS, Git Bash) and `powershell` (Windows); the host picks the one for its platform. */
+/* All hooks are "command" hooks running curl. Claude Code: bash (Git Bash on Windows). VS Code / Copilot CLI:
+   two flavours, `bash` (Linux, macOS, Git Bash) and `powershell` (Windows); the host picks the one for its platform. */
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStop', 'SessionEnd'];
-const CLAUDE_COMMAND_ONLY = ['SessionStart'];
 const VSCODE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'SessionEnd'];
 const COPILOT_CLI_EVENTS = ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'postToolUse', 'permissionRequest', 'notification', 'subagentStart', 'subagentStop', 'agentStop', 'errorOccurred', 'sessionEnd'];
 
@@ -320,21 +317,14 @@ function psCmd(ev) { return '$OutputEncoding=[Text.UTF8Encoding]::new($false); $
 
 function renderHook() {
   let code = '', help = '';
-  $('claude-opts').style.display = tab === 'claude' ? '' : 'none';
   if (tab === 'claude') {
-    const useCurl = $('claude-curl').checked;
     const hooks = {};
     CLAUDE_EVENTS.forEach(ev => {
-      const h = (useCurl || CLAUDE_COMMAND_ONLY.includes(ev))
-        ? { type:'command', command: bashCmd(ev), timeout: 5 }
-        : { type:'http', url: hookUrl(ev), timeout: 3 };
-      hooks[ev] = [{ hooks: [h] }];
+      hooks[ev] = [{ hooks: [{ type:'command', command: bashCmd(ev), timeout: 5 }] }];
     });
     code = JSON.stringify({ hooks }, null, 2);
     help = 'Merge into ~/.claude/settings.json (all sessions) or <project>/.claude/settings.json (one project). ' +
-      (useCurl
-        ? 'Command hooks run curl through bash (Git Bash on Windows) and fail silently when the device is off.'
-        : 'HTTP hooks are sent by Claude Code itself: no shell, no curl, same on Windows, Linux and macOS. Only SessionStart (command hooks only) runs curl through bash (Git Bash on Windows). When the device is unreachable Claude Code shows a non-blocking hook warning.');
+      'Command hooks run curl through bash (Git Bash on Windows) and fail silently when the device is off.';
   } else if (tab === 'vscode') {
     const hooks = {};
     VSCODE_EVENTS.forEach(ev => {
@@ -375,7 +365,6 @@ $('tabs').onclick = (e) => {
 };
 $('hook-agent').onchange = renderHook;
 $('hook-host').onchange = renderHook;
-$('claude-curl').onchange = renderHook;
 $('copy').onclick = async () => {
   const text = $('hook-code').textContent;
   try { await navigator.clipboard.writeText(text); }
