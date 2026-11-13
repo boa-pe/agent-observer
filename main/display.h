@@ -20,8 +20,9 @@ uint8_t display_get_dim_timeout(void);
 bool display_is_dimmed(void);
 /* Call on every received agent event: restores full brightness and restarts the countdown. */
 void display_activity(void);
-/* Call periodically (the UI loop does); dims when the timeout has elapsed. */
-void display_dim_tick(void);
+/* Call periodically (the UI loop does); dims when the timeout has elapsed.
+ * hold = true (an agent waits for user input) keeps full brightness and restarts the countdown. */
+void display_dim_tick(bool hold);
 /* Obtain a free band buffer (DISP_W * DISP_BAND_LINES pixels, byte-swapped RGB565).
  * Blocks while both buffers are still being transferred. */
 uint16_t *display_acquire_band(void);

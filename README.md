@@ -24,7 +24,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   Copilot CLI, or plain curl.
 - **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card)
   and kept across reboots. An optional inactivity timeout (0-60 min) halves the backlight when no agent
-  event has arrived for that long; the next event restores it.
+  event has arrived for that long; the next event restores it. It never dims while an agent is waiting for
+  user input; the countdown starts once no agent is waiting any more.
 - **Firmware updates over the air**: point the device at a GitHub repository/releases page (or a JSON
   manifest / direct `.bin` URL) and it checks periodically and installs new releases itself, with
   automatic rollback if the new firmware fails to come up.

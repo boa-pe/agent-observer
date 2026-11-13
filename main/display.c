@@ -128,8 +128,14 @@ void display_activity(void)
     }
 }
 
-void display_dim_tick(void)
+void display_dim_tick(bool hold)
 {
+    if (hold) {
+        /* something needs the user: stay at full level and restart the countdown, so dimming
+         * can only begin dim_timeout_min after the last waiting agent was answered */
+        display_activity();
+        return;
+    }
     if (s_dimmed || s_dim_timeout_min == 0) return;
     if (esp_timer_get_time() - s_last_activity_us >= (int64_t)s_dim_timeout_min * 60 * 1000000) {
         s_dimmed = true;
