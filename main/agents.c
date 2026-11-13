@@ -53,6 +53,17 @@ typedef struct {
 static bool s_states_dirty;
 static int64_t s_states_dirty_since;
 
+/* Offline timeout: an agent with no event for this many minutes is marked offline (0 = never).
+ * Runtime setting stored in NVS; the Kconfig value is the default. */
+#define OFFLINE_KEY     "off_min"
+#define OFFLINE_MAX_MIN 240
+static uint8_t s_offline_min;
+
+static uint8_t clamp_offline(int minutes)
+{
+    return minutes < 0 ? 0 : minutes > OFFLINE_MAX_MIN ? OFFLINE_MAX_MIN : (uint8_t)minutes;
+}
+
 #define LOCK()   xSemaphoreTake(s_lock, portMAX_DELAY)
 #define UNLOCK() xSemaphoreGive(s_lock)
 
@@ -198,6 +209,7 @@ static void shutdown_handler(void) { save_states(true); }
 esp_err_t agents_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
+    s_offline_min = clamp_offline((int)settings_get_u32(OFFLINE_KEY, CONFIG_AO_STALE_TIMEOUT_MIN));
     static agents_blob_t blob;
     size_t len = sizeof(blob);
     memset(&blob, 0, sizeof(blob));
@@ -451,6 +463,20 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
     return i >= 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
+uint8_t agents_get_offline_timeout(void)
+{
+    return s_offline_min;
+}
+
+esp_err_t agents_set_offline_timeout(int minutes)
+{
+    s_offline_min = clamp_offline(minutes);
+    if (settings_get_u32(OFFLINE_KEY, CONFIG_AO_STALE_TIMEOUT_MIN) == s_offline_min) return ESP_OK;
+    esp_err_t err = settings_set_u32(OFFLINE_KEY, s_offline_min);
+    if (err == ESP_OK) ESP_LOGI(TAG, "offline timeout %u min saved", s_offline_min);
+    return err;
+}
+
 void agents_cycle(void)
 {
     LOCK();
@@ -466,9 +492,8 @@ void agents_tick(void)
 {
     int64_t now = esp_timer_get_time();
     LOCK();
-#if CONFIG_AO_STALE_TIMEOUT_MIN > 0
-    const int64_t stale = (int64_t)CONFIG_AO_STALE_TIMEOUT_MIN * 60 * 1000000;
-    for (int i = 0; i < s_count; i++) {
+    const int64_t stale = (int64_t)s_offline_min * 60 * 1000000;
+    for (int i = 0; stale > 0 && i < s_count; i++) {
         agent_t *a = &s_agents[i];
         if (a->state != AGENT_STATE_OFFLINE && a->last_event_us && now - a->last_event_us > stale) {
             ESP_LOGI(TAG, "%s: stale -> offline", a->cfg.id);
@@ -480,7 +505,6 @@ void agents_tick(void)
             s_version++;
         }
     }
-#endif
     /* Auto-focus: if anything waits for the user, show it (unless the user just pressed the button). */
     if (s_count > 0 && now >= s_manual_until_us &&
         (s_displayed < 0 || s_agents[s_displayed].state != AGENT_STATE_WAITING)) {

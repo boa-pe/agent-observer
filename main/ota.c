@@ -143,7 +143,17 @@ static bool asset_is_app_bin(const char *name)
         && !ci_contains(name, "ota_data") && !ci_contains(name, "merged");
 }
 
-static const char *ver_norm(const char *v) { return (*v == 'v' || *v == 'V') ? v + 1 : v; }
+/* Strip a tag prefix so only the version remains: "v1.2.3", "release_1.2.3", "fw-1.2" -> "1.2.3" / "1.2".
+ * Returns the first "<digits>.<digit>" run; strings without one are returned unchanged (minus a leading 'v'). */
+static const char *ver_norm(const char *v)
+{
+    for (const char *p = v; *p; p++) {
+        if (isdigit((unsigned char)*p) && (p == v || !isdigit((unsigned char)p[-1])) &&
+            (p[strspn(p, "0123456789")] == '.') && isdigit((unsigned char)p[strspn(p, "0123456789") + 1]))
+            return p;
+    }
+    return (*v == 'v' || *v == 'V') ? v + 1 : v;
+}
 
 /* >0 if a is newer than b, 0 if equal, <0 if older. Falls back to "different = newer" for non-semver. */
 static int ver_cmp(const char *a, const char *b)

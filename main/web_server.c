@@ -174,7 +174,27 @@ static esp_err_t h_agents_get(httpd_req_t *req)
         cJSON_AddItemToArray(arr, agent_to_json(&snap.agents[i], i == snap.displayed, now));
     }
     cJSON_AddNumberToObject(root, "max", AGENT_MAX);
+    cJSON_AddNumberToObject(root, "offline_timeout_min", agents_get_offline_timeout());
     return send_json(req, root);
+}
+
+/* POST /api/agents/settings   body: {"offline_timeout_min":0..240}  (0 = never mark offline) */
+static esp_err_t h_agents_settings(httpd_req_t *req)
+{
+    char *body = read_body(req, 128);
+    cJSON *j = body ? cJSON_Parse(body) : NULL;
+    free(body);
+    if (!j) return send_error(req, "400 Bad Request", "invalid JSON");
+    const cJSON *t = cJSON_GetObjectItem(j, "offline_timeout_min");
+    bool ok = cJSON_IsNumber(t) && t->valuedouble >= 0 && t->valuedouble <= 240;
+    int minutes = ok ? t->valueint : 0;
+    cJSON_Delete(j);
+    if (!ok) return send_error(req, "400 Bad Request", "offline_timeout_min must be 0..240");
+    esp_err_t e = agents_set_offline_timeout(minutes);
+    if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "offline_timeout_min", agents_get_offline_timeout());
+    return send_json(req, o);
 }
 
 static esp_err_t h_agents_post(httpd_req_t *req)
@@ -582,6 +602,7 @@ esp_err_t web_server_start_main(void)
     REG(h, "/", HTTP_GET, h_index);
     REG(h, "/api/agents", HTTP_GET, h_agents_get);
     REG(h, "/api/agents", HTTP_POST, h_agents_post);
+    REG(h, "/api/agents/settings", HTTP_POST, h_agents_settings);
     REG(h, "/api/agents/*", HTTP_PUT, h_agents_put);
     REG(h, "/api/agents/*", HTTP_DELETE, h_agents_delete);
     REG(h, "/api/hook/*", HTTP_POST, h_hook);
