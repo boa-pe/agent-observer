@@ -241,7 +241,11 @@ static esp_err_t h_hook(httpd_req_t *req)
     char *body = req->content_len ? read_body(req, MAX_BODY) : NULL;
     esp_err_t err = agents_handle_hook(id, ev, body ? body : "");
     free(body);
-    return err_to_resp(req, err);
+    if (err != ESP_OK) return err_to_resp(req, err);
+    /* Empty 2xx on success: hook runners treat a response body as hook output (Claude Code validates the
+       JSON of HTTP hooks and feeds command-hook stdout of SessionStart/UserPromptSubmit to the model). */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, NULL, 0);
 }
 
 /* POST /api/state/<id>   body {"state":"working","detail":"..."}  or  ?state=working */

@@ -423,7 +423,7 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
             st = AGENT_STATE_WAITING;
             detail = msg[0] ? msg : "needs attention";
         }
-    } else if (!strcasecmp(ev, "Stop")) {
+    } else if (!strcasecmp(ev, "Stop") || !strcasecmp(ev, "agentStop")) { /* agentStop: Copilot CLI */
 #if CONFIG_AO_STOP_IS_WAITING
         st = AGENT_STATE_WAITING; detail = "turn finished";
 #else
