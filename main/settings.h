@@ -32,6 +32,15 @@ esp_err_t settings_wifi_remove(const char *ssid, wifi_list_t *out);
 bool settings_get_force_setup(void);
 esp_err_t settings_set_force_setup(bool on);
 
+/* Network identity. Hostname: mDNS <name>.local and DHCP host name, 1-31 chars of a-z, 0-9 and '-'
+ * (not at either end); default CONFIG_AO_HOSTNAME. Hook port: TCP port that accepts agent status
+ * (/api/hook, /api/state) in addition to port 80; default CONFIG_AO_HOOK_PORT. Both apply after a restart. */
+#define SETTINGS_HOSTNAME_LEN 32
+bool settings_hostname_valid(const char *name);
+void settings_get_hostname(char *out, size_t len);
+uint16_t settings_get_hook_port(void);
+esp_err_t settings_set_network(const char *hostname, uint16_t hook_port);
+
 /* Generic typed values (missing key -> default / empty string, returns false). */
 bool settings_get_str(const char *key, char *out, size_t len);
 esp_err_t settings_set_str(const char *key, const char *val);

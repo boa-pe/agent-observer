@@ -298,7 +298,10 @@ static esp_err_t h_status(httpd_req_t *req)
     char ip[20];
     wifi_mgr_get_ip(ip, sizeof(ip));
     cJSON *o = cJSON_CreateObject();
-    cJSON_AddStringToObject(o, "hostname", CONFIG_AO_HOSTNAME);
+    char host[SETTINGS_HOSTNAME_LEN];
+    settings_get_hostname(host, sizeof(host));
+    cJSON_AddStringToObject(o, "hostname", host);
+    cJSON_AddNumberToObject(o, "hook_port", settings_get_hook_port());
     cJSON_AddStringToObject(o, "ip", ip);
     cJSON_AddStringToObject(o, "ssid", wifi_mgr_sta_ssid());
     cJSON_AddNumberToObject(o, "rssi", wifi_mgr_rssi());
@@ -313,6 +316,46 @@ static esp_err_t h_enter_setup(httpd_req_t *req)
     settings_set_force_setup(true);
     send_ok(req);
     ui_set_message("Rebooting", "Starting Wi-Fi setup mode");
+    schedule_reboot();
+    return ESP_OK;
+}
+
+/* ---------- network identity ---------- */
+
+/* POST /api/network   body: {"hostname":"agent-observer-2","hook_port":8080}
+ * Stores both and restarts the device, which then answers as <hostname>.local and accepts agent
+ * status on port 80 and on hook_port. */
+static esp_err_t h_network_set(httpd_req_t *req)
+{
+    char *body = read_body(req, 256);
+    cJSON *j = body ? cJSON_Parse(body) : NULL;
+    free(body);
+    if (!j) return send_error(req, "400 Bad Request", "invalid JSON");
+    const cJSON *hn = cJSON_GetObjectItem(j, "hostname");
+    const cJSON *pt = cJSON_GetObjectItem(j, "hook_port");
+    char host[SETTINGS_HOSTNAME_LEN] = "";
+    if (cJSON_IsString(hn) && strlen(hn->valuestring) < sizeof(host)) strlcpy(host, hn->valuestring, sizeof(host));
+    bool port_ok = cJSON_IsNumber(pt) && pt->valuedouble >= 1 && pt->valuedouble <= 65535 &&
+                   pt->valuedouble == (double)pt->valueint;
+    uint16_t port = port_ok ? (uint16_t)pt->valueint : 0;
+    cJSON_Delete(j);
+    if (!settings_hostname_valid(host))
+        return send_error(req, "400 Bad Request", "hostname: 1-31 chars, lowercase letters, digits and '-' (not first or last)");
+    if (!port_ok) return send_error(req, "400 Bad Request", "hook_port must be 1..65535");
+    char cur[SETTINGS_HOSTNAME_LEN];
+    settings_get_hostname(cur, sizeof(cur));
+    if (!strcmp(cur, host) && settings_get_hook_port() == port) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "restart", false);
+        return send_json(req, o);
+    }
+    esp_err_t e = settings_set_network(host, port);
+    if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
+    ESP_LOGI(TAG, "network identity saved: %s.local, hook port %u; restarting", host, port);
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "restart", true);
+    send_json(req, o);
+    ui_set_message("Rebooting", "Applying new hostname and port");
     schedule_reboot();
     return ESP_OK;
 }
@@ -572,19 +615,21 @@ static esp_err_t h_captive_redirect(httpd_req_t *req)
 
 /* ---------- start ---------- */
 
-static httpd_handle_t start_server(int max_handlers)
+static httpd_handle_t start_server(int max_handlers, uint16_t port, uint16_t ctrl_port, int max_socks)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers = max_handlers;
+    cfg.server_port = port;
+    cfg.ctrl_port = ctrl_port; /* each running httpd instance needs its own control port */
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
-    cfg.max_open_sockets = 7;
+    cfg.max_open_sockets = max_socks; /* LWIP_MAX_SOCKETS is 16; each server also holds 2 internal sockets */
     cfg.recv_wait_timeout = 5;
     cfg.send_wait_timeout = 5;
     httpd_handle_t h = NULL;
     if (httpd_start(&h, &cfg) != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_start failed");
+        ESP_LOGE(TAG, "httpd_start on port %u failed", port);
         return NULL;
     }
     return h;
@@ -597,7 +642,7 @@ static httpd_handle_t start_server(int max_handlers)
 
 esp_err_t web_server_start_main(void)
 {
-    httpd_handle_t h = start_server(24);
+    httpd_handle_t h = start_server(28, 80, 32768, 7);
     if (!h) return ESP_FAIL;
     REG(h, "/", HTTP_GET, h_index);
     REG(h, "/api/agents", HTTP_GET, h_agents_get);
@@ -609,6 +654,7 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/state/*", HTTP_POST, h_state);
     REG(h, "/api/status", HTTP_GET, h_status);
     REG(h, "/api/setup", HTTP_POST, h_enter_setup);
+    REG(h, "/api/network", HTTP_POST, h_network_set);
     REG(h, "/api/wifi/networks", HTTP_GET, h_wifi_list);
     REG(h, "/api/wifi/networks", HTTP_POST, h_wifi_add);
     REG(h, "/api/wifi/networks/delete", HTTP_POST, h_wifi_delete);
@@ -621,12 +667,25 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/ota/rollback", HTTP_POST, h_ota_rollback);
     REG(h, "/*", HTTP_OPTIONS, h_options);
     ESP_LOGI(TAG, "web UI ready");
+
+    /* Agent status on a custom port: a small second server with only the hook-facing routes. */
+    uint16_t hook_port = settings_get_hook_port();
+    if (hook_port != 80) {
+        /* only handlers without shared static buffers: this server runs in its own task */
+        httpd_handle_t hk = start_server(4, hook_port, 32769, 3);
+        if (hk) {
+            REG(hk, "/api/hook/*", HTTP_POST, h_hook);
+            REG(hk, "/api/state/*", HTTP_POST, h_state);
+            REG(hk, "/*", HTTP_OPTIONS, h_options);
+            ESP_LOGI(TAG, "agent status also accepted on port %u", hook_port);
+        }
+    }
     return ESP_OK;
 }
 
 esp_err_t web_server_start_setup(void)
 {
-    httpd_handle_t h = start_server(10);
+    httpd_handle_t h = start_server(10, 80, 32768, 7);
     if (!h) return ESP_FAIL;
     REG(h, "/", HTTP_GET, h_setup_index);
     REG(h, "/api/scan", HTTP_GET, h_scan);

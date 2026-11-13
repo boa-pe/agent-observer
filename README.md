@@ -22,6 +22,9 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
+- **Several monitors in one network**: the mDNS name (`<name>.local`, default `agent-observer`) and the port
+  that accepts agent status are set in the web UI (*Network* card) and stored on the device; the generated hook
+  templates use both. Status is always accepted on port 80 as well, so the web UI and old hooks keep working.
 - **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card)
   and kept across reboots. An optional inactivity timeout (0-60 min) halves the backlight when no agent
   event has arrived for that long; the next event restores it. It never dims while an agent is waiting for
@@ -182,6 +185,7 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | POST | `/api/hook/<id>?event=<Event>` | raw hook JSON (optional); replies with an empty `200` |
 | POST | `/api/state/<id>?state=working&detail=...` | or JSON `{"state":"waiting","detail":".."}` |
 | POST | `/api/agents/settings` | `{"offline_timeout_min":0..240}` mark agents offline after that many minutes without events (0 = never); also reported by `GET /api/agents` |
+| POST | `/api/network` | `{"hostname":"agent-observer-2","hook_port":8080}` store mDNS name and agent status port, then restart (`GET /api/status` reports both) |
 | GET | `/api/status` | – |
 | POST | `/api/setup` | reboot into Wi-Fi setup |
 | GET | `/api/wifi/networks` | saved networks (no passwords) |

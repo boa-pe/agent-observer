@@ -118,8 +118,18 @@ menu "Agent Observer"
 
     menu "Behaviour"
         config AO_HOSTNAME
-            string "Hostname (mDNS: <hostname>.local)"
+            string "Default hostname (mDNS: <hostname>.local)"
             default "agent-observer"
+            help
+                Lowercase letters, digits and '-'. Can be changed at runtime from the web UI
+                (Network card), e.g. to run several monitors in one network.
+        config AO_HOOK_PORT
+            int "Default port for agent status (hooks)"
+            range 1 65535
+            default 80
+            help
+                Hooks are always accepted on port 80 (together with the web UI); a different
+                port starts an extra listener for /api/hook and /api/state. Changeable in the web UI.
         config AO_AP_SSID_PREFIX
             string "Setup access point SSID prefix"
             default "AgentObserver"
