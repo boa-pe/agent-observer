@@ -1,0 +1,94 @@
+{
+  "_comment": "GitHub Copilot CLI hooks. Save as <repo>/.github/hooks/agent-observer.json. Replace AGENT_ID and the host. `bash` runs on Linux/macOS, `powershell` on Windows; both always exit 0 so an unreachable device never denies a tool call.",
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=sessionStart\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=sessionStart\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=userPromptSubmitted\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=userPromptSubmitted\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=preToolUse\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=preToolUse\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=postToolUse\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=postToolUse\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "permissionRequest": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=permissionRequest\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=permissionRequest\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=notification\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=notification\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=subagentStart\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=subagentStart\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=subagentStop\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=subagentStop\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=agentStop\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=agentStop\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=errorOccurred\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=errorOccurred\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=sessionEnd\" >/dev/null 2>&1 || true",
+        "powershell": "$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=sessionEnd\" | Out-Null; exit 0",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

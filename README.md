@@ -79,9 +79,24 @@ reached it keeps retrying with back-off (up to 30 s); use setup mode to add a ne
 1. In the web UI, add an agent with a display name and a short id (e.g. `backend`).
 2. Open *Connect an agent*, pick the agent and the tab for your tool, copy the JSON.
 3. Claude Code: merge into `~/.claude/settings.json` (see [`examples/claude-settings-hooks.json`](examples/claude-settings-hooks.json)).
-   VS Code / Copilot CLI: save as `.github/hooks/agent-observer.json` in the repo.
+   VS Code / Copilot CLI: save as `.github/hooks/agent-observer.json` in the repo (see
+   [`examples/vscode-hooks-agent-observer.json`](examples/vscode-hooks-agent-observer.json) and
+   [`examples/copilot-cli-hooks-agent-observer.json`](examples/copilot-cli-hooks-agent-observer.json)).
 
-The hooks POST the event payload to `http://<device>/api/hook/<id>?event=<Event>`.
+The hooks POST the event payload to `http://<device>/api/hook/<id>?event=<Event>`, which answers an empty `200`.
+The generated configuration works unchanged on Windows, Linux and macOS:
+
+- **Claude Code** uses *HTTP hooks* (`"type": "http"`): Claude Code sends the request itself, so no shell or
+  `curl` is involved. The exception is `SessionStart`, which Claude Code only runs as a command hook; it uses
+  `curl` through bash (Git Bash on Windows, which Claude Code needs anyway). Tick *Use curl command hooks* in the
+  web UI for Claude Code versions without HTTP hooks; those run silently through bash and never fail.
+- **VS Code / Copilot CLI** hooks carry both a `bash` and a `powershell` command and the host picks the one for its
+  platform. The PowerShell variant calls `curl.exe` (plain `curl` is an alias of `Invoke-WebRequest` in Windows
+  PowerShell), pipes the hook JSON via `$input`, discards the output with `Out-Null` (curl.exe cannot write to
+  `/dev/null`) and always exits 0, because a non-zero `preToolUse` hook would deny the tool call in Copilot CLI.
+  The bash variant ends in `|| true` for the same reason. Both pass `-H "Expect:"` so large `PostToolUse`
+  payloads are not delayed by curl waiting for `100-continue`.
+
 Event mapping:
 
 | Event | State |
@@ -89,7 +104,7 @@ Event mapping:
 | `SessionStart` | idle |
 | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Subagent*` | working |
 | `PreToolUse` for `AskUserQuestion` / `ExitPlanMode`, `PermissionRequest`, `Notification` | **waiting** |
-| `Stop` | idle (or waiting, see `AO_STOP_IS_WAITING`) |
+| `Stop`, `agentStop` | idle (or waiting, see `AO_STOP_IS_WAITING`) |
 | `ErrorOccurred` | error |
 | `SessionEnd` | offline |
 
@@ -159,7 +174,7 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | POST | `/api/agents` | `{"id":"backend","name":"Backend","kind":"claude\|copilot\|other"}` |
 | PUT | `/api/agents/<id>` | `{"name":"..","kind":".."}` or `{"move":-1\|1}` |
 | DELETE | `/api/agents/<id>` | – |
-| POST | `/api/hook/<id>?event=<Event>` | raw hook JSON (optional) |
+| POST | `/api/hook/<id>?event=<Event>` | raw hook JSON (optional); replies with an empty `200` |
 | POST | `/api/state/<id>?state=working&detail=...` | or JSON `{"state":"waiting","detail":".."}` |
 | GET | `/api/status` | – |
 | POST | `/api/setup` | reboot into Wi-Fi setup |
