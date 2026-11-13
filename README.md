@@ -21,6 +21,9 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
+- **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card)
+  and kept across reboots. An optional inactivity timeout (0-60 min) halves the backlight when no agent
+  event has arrived for that long; the next event restores it.
 - **Firmware updates over the air**: point the device at a GitHub repository/releases page (or a JSON
   manifest / direct `.bin` URL) and it checks periodically and installs new releases itself, with
   automatic rollback if the new firmware fails to come up.
@@ -181,6 +184,8 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | GET | `/api/wifi/networks` | saved networks (no passwords) |
 | POST | `/api/wifi/networks` | `{"ssid":"..","password":"..","preferred":true}` add/update (omit `password` to keep it) |
 | POST | `/api/wifi/networks/delete` | `{"ssid":".."}` |
+| GET | `/api/display` | `{"brightness":100,"adjustable":true,"dim_timeout_min":0,"dimmed":false}` |
+| POST | `/api/display` | `{"brightness":5..100,"dim_timeout_min":0..60}` (either field) apply and store; add `"preview":true` to apply the brightness without storing |
 | GET | `/api/ota` | update configuration and status |
 | POST | `/api/ota` | `{"url":"https://github.com/o/r","asset":"","auto_update":true,"interval_h":24}` |
 | POST | `/api/ota/check` | check for an update now |

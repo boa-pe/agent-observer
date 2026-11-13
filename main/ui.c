@@ -623,6 +623,7 @@ static void ui_task(void *arg)
     for (;;) {
         uint32_t t = (uint32_t)((esp_timer_get_time() - t0) / 1000);
         agents_snapshot(&s_snap);
+        display_dim_tick();
         s_connected = wifi_mgr_connected();
         wifi_mgr_get_ip(s_ip, sizeof(s_ip));
         ui_mode_t mode = s_mode;

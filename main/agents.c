@@ -1,4 +1,5 @@
 #include "agents.h"
+#include "display.h"
 #include <stddef.h>
 #include <string.h>
 #include <strings.h>
@@ -329,6 +330,7 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
     a->last_event_us = now;
     if (detail) strlcpy(a->detail, detail, AGENT_DETAIL_LEN);
     s_version++;
+    display_activity();
 }
 
 esp_err_t agents_set_state(const char *id, agent_state_t st, const char *detail)
