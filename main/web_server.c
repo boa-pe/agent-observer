@@ -17,6 +17,7 @@
 #include "wifi_mgr.h"
 #include "ui.h"
 #include "ota.h"
+#include "display.h"
 
 static const char *TAG = "web";
 
@@ -303,6 +304,51 @@ static esp_err_t h_options(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
+/* ---------- display ---------- */
+
+static cJSON *display_to_json(void)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "brightness", display_get_brightness());
+    cJSON_AddBoolToObject(o, "adjustable", CONFIG_AO_LCD_PIN_BL >= 0);
+    cJSON_AddNumberToObject(o, "dim_timeout_min", display_get_dim_timeout());
+    cJSON_AddBoolToObject(o, "dimmed", display_is_dimmed());
+    return o;
+}
+
+static esp_err_t h_display_get(httpd_req_t *req) { return send_json(req, display_to_json()); }
+
+/* POST /api/display   body: {"brightness":5..100, "preview":false, "dim_timeout_min":0..60}
+ * Fields are optional. preview=true applies the brightness without storing it (live slider
+ * feedback). dim_timeout_min: minutes without an agent event before the backlight is halved
+ * (0 = never); always stored. */
+static esp_err_t h_display_set(httpd_req_t *req)
+{
+    char *body = read_body(req, 256);
+    cJSON *j = body ? cJSON_Parse(body) : NULL;
+    free(body);
+    if (!j) return send_error(req, "400 Bad Request", "invalid JSON");
+    const cJSON *b = cJSON_GetObjectItem(j, "brightness");
+    const cJSON *pv = cJSON_GetObjectItem(j, "preview");
+    const cJSON *dt = cJSON_GetObjectItem(j, "dim_timeout_min");
+    const char *err = NULL;
+    if (b && (!cJSON_IsNumber(b) || b->valueint < 5 || b->valueint > 100)) err = "brightness must be 5..100";
+    if (dt && (!cJSON_IsNumber(dt) || dt->valueint < 0 || dt->valueint > 60)) err = "dim_timeout_min must be 0..60";
+    if (!b && !dt && !err) err = "nothing to set";
+    if (err) {
+        cJSON_Delete(j);
+        return send_error(req, "400 Bad Request", err);
+    }
+    bool persist = !(cJSON_IsBool(pv) && cJSON_IsTrue(pv));
+    int pct = b ? b->valueint : -1, minutes = dt ? dt->valueint : -1;
+    cJSON_Delete(j);
+    esp_err_t e = ESP_OK;
+    if (pct >= 0) e = display_set_brightness(pct, persist);
+    if (e == ESP_OK && minutes >= 0) e = display_set_dim_timeout(minutes);
+    if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
+    return send_json(req, display_to_json());
+}
+
 /* ---------- firmware update ---------- */
 
 static esp_err_t h_ota_get(httpd_req_t *req) { return send_json(req, ota_to_json()); }
@@ -531,7 +577,7 @@ static httpd_handle_t start_server(int max_handlers)
 
 esp_err_t web_server_start_main(void)
 {
-    httpd_handle_t h = start_server(20);
+    httpd_handle_t h = start_server(24);
     if (!h) return ESP_FAIL;
     REG(h, "/", HTTP_GET, h_index);
     REG(h, "/api/agents", HTTP_GET, h_agents_get);
@@ -545,6 +591,8 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/wifi/networks", HTTP_GET, h_wifi_list);
     REG(h, "/api/wifi/networks", HTTP_POST, h_wifi_add);
     REG(h, "/api/wifi/networks/delete", HTTP_POST, h_wifi_delete);
+    REG(h, "/api/display", HTTP_GET, h_display_get);
+    REG(h, "/api/display", HTTP_POST, h_display_set);
     REG(h, "/api/ota", HTTP_GET, h_ota_get);
     REG(h, "/api/ota", HTTP_POST, h_ota_config);
     REG(h, "/api/ota/check", HTTP_POST, h_ota_check);
