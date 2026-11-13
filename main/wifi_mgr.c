@@ -1,4 +1,5 @@
 #include "wifi_mgr.h"
+#include "settings.h"
 #include <string.h>
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
@@ -172,7 +173,9 @@ esp_err_t wifi_mgr_start_sta(const wifi_list_t *nets)
     common_init();
     s_nets = *nets;
     s_sta_netif = esp_netif_create_default_wifi_sta();
-    esp_netif_set_hostname(s_sta_netif, CONFIG_AO_HOSTNAME);
+    static char host[SETTINGS_HOSTNAME_LEN]; /* netif keeps the pointer */
+    settings_get_hostname(host, sizeof(host));
+    esp_netif_set_hostname(s_sta_netif, host);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());

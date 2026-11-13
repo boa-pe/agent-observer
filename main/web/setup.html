@@ -105,7 +105,7 @@ $('form').onsubmit = async (e) => {
     if (!r.ok) throw new Error(j.error || 'failed');
     msg.className = 'msg ok';
     msg.textContent = 'Saved. The device is restarting and will connect to "' + $('ssid').value +
-      '". Reconnect this phone/PC to that network, then open http://agent-observer.local or the IP shown on the display.';
+      '". Reconnect this phone/PC to that network, then open http://<name>.local (agent-observer.local unless renamed) or the IP shown on the display.';
   } catch (err) {
     msg.className = 'msg err'; msg.textContent = 'Error: ' + err.message;
   }

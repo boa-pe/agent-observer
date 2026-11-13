@@ -79,9 +79,12 @@ static bool boot_window_wants_setup(void)
 static void start_mdns(void)
 {
     if (mdns_init() != ESP_OK) return;
-    mdns_hostname_set(CONFIG_AO_HOSTNAME);
-    mdns_instance_name_set("Agent Observer");
+    char host[SETTINGS_HOSTNAME_LEN];
+    settings_get_hostname(host, sizeof(host));
+    mdns_hostname_set(host);
+    mdns_instance_name_set(host); /* distinct service names when several monitors share a network */
     mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+
 }
 
 static void update_led(void)

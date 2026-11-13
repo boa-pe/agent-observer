@@ -3,6 +3,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 
 #define NS "ao"
 static const char *TAG = "settings";
@@ -207,5 +208,43 @@ esp_err_t settings_save_blob(const char *key, const void *buf, size_t len)
     err = nvs_set_blob(h, key, buf, len);
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
+    return err;
+}
+
+/* ---------- network identity ---------- */
+
+#define K_HOSTNAME  "hostname"
+#define K_HOOK_PORT "hook_port"
+
+bool settings_hostname_valid(const char *name)
+{
+    size_t n = name ? strlen(name) : 0;
+    if (n == 0 || n >= SETTINGS_HOSTNAME_LEN || name[0] == '-' || name[n - 1] == '-') return false;
+    for (size_t i = 0; i < n; i++) {
+        char c = name[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+    }
+    return true;
+}
+
+void settings_get_hostname(char *out, size_t len)
+{
+    char buf[SETTINGS_HOSTNAME_LEN];
+    if (!settings_get_str(K_HOSTNAME, buf, sizeof(buf)) || !settings_hostname_valid(buf))
+        strlcpy(buf, CONFIG_AO_HOSTNAME, sizeof(buf));
+    strlcpy(out, buf, len);
+}
+
+uint16_t settings_get_hook_port(void)
+{
+    uint32_t p = settings_get_u32(K_HOOK_PORT, CONFIG_AO_HOOK_PORT);
+    return (p >= 1 && p <= 65535) ? (uint16_t)p : CONFIG_AO_HOOK_PORT;
+}
+
+esp_err_t settings_set_network(const char *hostname, uint16_t hook_port)
+{
+    if (!settings_hostname_valid(hostname) || hook_port == 0) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = settings_set_str(K_HOSTNAME, hostname);
+    if (err == ESP_OK) err = settings_set_u32(K_HOOK_PORT, hook_port);
     return err;
 }

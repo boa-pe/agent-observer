@@ -123,6 +123,18 @@
     <div class="err" id="w-err"></div>
   </section>
 
+  <section class="card">
+    <h2>Network</h2>
+    <div class="muted">Give each monitor its own name to run several in one network. Agent status is always accepted on port 80;
+      another port adds a listener for hooks only. The hook templates above use both. Saving restarts the device.</div>
+    <form class="add" id="net" style="margin-top:12px; grid-template-columns:1.6fr 1fr auto">
+      <div><label for="n-host">mDNS name (&lt;name&gt;.local)</label><input id="n-host" maxlength="31" required pattern="[a-z0-9]([a-z0-9\-]{0,29}[a-z0-9])?" autocomplete="off" disabled></div>
+      <div><label for="n-port">Agent status port</label><input id="n-port" type="number" min="1" max="65535" step="1" required disabled></div>
+      <div><button class="primary" type="submit" id="n-save" disabled>Save &amp; restart</button></div>
+    </form>
+    <div class="err" id="n-err"></div>
+  </section>
+
   <section class="card" id="display-card">
     <h2>Display</h2>
     <div class="muted">Backlight intensity. The level is applied while you drag and stored on the device when you release the slider.</div>
@@ -279,9 +291,15 @@ async function loadStatus() {
     $('dev').textContent = status.hostname + '.local · ' + status.ip + ' · ' + status.ssid + ' (' + status.rssi + ' dBm) · fw ' + status.version;
     const hs = $('hook-host'), cur = hs.value;
     hs.innerHTML = '';
-    hs.append(el('option', { value:status.hostname + '.local', textContent:'Use ' + status.hostname + '.local' }));
-    hs.append(el('option', { value:status.ip, textContent:'Use IP ' + status.ip }));
-    if (cur) hs.value = cur;
+    const hp = status.hook_port && status.hook_port !== 80 ? ':' + status.hook_port : '';
+    hs.append(el('option', { value:status.hostname + '.local' + hp, textContent:'Use ' + status.hostname + '.local' + hp }));
+    hs.append(el('option', { value:status.ip + hp, textContent:'Use IP ' + status.ip + hp }));
+    if (cur && [...hs.options].some(o => o.value === cur)) hs.value = cur;
+    if (!netDirty) {
+      $('n-host').value = status.hostname;
+      $('n-port').value = status.hook_port || 80;
+      $('n-host').disabled = $('n-port').disabled = $('n-save').disabled = false;
+    }
     renderHook();
   } catch (e) {}
 }
@@ -351,6 +369,7 @@ function renderHook() {
     help = 'Save as <repo>/.github/hooks/agent-observer.json for GitHub Copilot CLI. "bash" runs on Linux/macOS, "powershell" on Windows. Both always exit 0, so an unreachable device never denies a tool call.';
   } else {
     const base = 'http://' + ($('hook-host').value || location.host);
+    const ui = 'http://' + (status.hostname ? status.hostname + '.local' : location.host);
     const id = $('hook-agent').value;
     code = '# set a state directly (offline | idle | working | waiting | error)\n' +
       'curl -X POST "' + base + '/api/state/' + id + '?state=working"\n' +
@@ -360,7 +379,7 @@ function renderHook() {
       '# Windows PowerShell: call curl.exe (plain `curl` is an alias of Invoke-WebRequest there)\n' +
       'curl.exe -X POST "' + base + '/api/state/' + id + '?state=idle"\n\n' +
       '# list agents and their states\n' +
-      'curl ' + base + '/api/agents';
+      'curl ' + ui + '/api/agents';
     help = 'Any script can report state via the REST API (curl ships with Windows 10+, macOS and most Linux distributions).';
   }
   $('hook-help').textContent = help;
@@ -419,6 +438,24 @@ $('wifi-add').onsubmit = async (e) => {
 const OTA_STATE = { idle:['idle','--muted'], checking:['checking','--waiting'], up_to_date:['up to date','--idle'],
   available:['update available','--waiting'], downloading:['downloading','--waiting'], rebooting:['rebooting','--idle'], error:['error','--working'] };
 let otaTimer = null, otaDirty = false;
+
+/* ---------- network identity ---------- */
+let netDirty = false;
+$('net').addEventListener('input', () => { netDirty = true; });
+$('net').onsubmit = async (e) => {
+  e.preventDefault();
+  const hostname = $('n-host').value.trim().toLowerCase(), hook_port = Math.round(+$('n-port').value);
+  const tpl = hostname !== status.hostname || hook_port !== (status.hook_port || 80);
+  if (tpl && !confirm('Restart the device as ' + hostname + '.local with agent status on port ' + hook_port +
+      '?\n\nHooks already installed with the old name or port must be updated with the new templates.')) return;
+  try {
+    const r = await api('POST', '/api/network', { hostname, hook_port });
+    netDirty = false;
+    if (!r.restart) { $('n-err').textContent = 'No change.'; return; }
+    $('n-err').textContent = 'Restarting... this page moves to http://' + hostname + '.local/ in a few seconds.';
+    setTimeout(() => { location.href = 'http://' + hostname + '.local/'; }, 9000);
+  } catch (err) { $('n-err').textContent = err.message; }
+};
 
 /* ---------- offline timeout ---------- */
 $('off-min').addEventListener('change', async () => {
