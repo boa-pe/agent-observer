@@ -623,7 +623,9 @@ static void ui_task(void *arg)
     for (;;) {
         uint32_t t = (uint32_t)((esp_timer_get_time() - t0) / 1000);
         agents_snapshot(&s_snap);
-        display_dim_tick();
+        bool waiting = false; /* never dim while an agent needs user input */
+        for (int i = 0; i < s_snap.count && !waiting; i++) waiting = s_snap.agents[i].state == AGENT_STATE_WAITING;
+        display_dim_tick(waiting);
         s_connected = wifi_mgr_connected();
         wifi_mgr_get_ip(s_ip, sizeof(s_ip));
         ui_mode_t mode = s_mode;
