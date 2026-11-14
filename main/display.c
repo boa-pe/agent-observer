@@ -45,6 +45,9 @@ static bool IRAM_ATTR on_color_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_
 #define DIM_DEFAULT 0
 #define DIM_MAX_MIN 60
 
+#define DIMLVL_KEY     "bl_dimlvl"
+#define DIMLVL_DEFAULT 50
+
 #define ROT_KEY     "rot"
 
 #ifdef CONFIG_AO_LCD_MIRROR_X
@@ -74,9 +77,11 @@ static volatile bool s_rot_pending;
 static uint8_t s_brightness = BL_DEFAULT;
 static bool s_bl_on;
 /* Inactivity dimming: after s_dim_timeout_min minutes without an agent event the
- * backlight runs at half the configured level until the next event. 0 = disabled. */
+ * backlight runs at s_dim_level (never above s_brightness) until the next event. 0 = disabled. */
 static uint8_t s_dim_timeout_min = DIM_DEFAULT;
+static uint8_t s_dim_level = DIMLVL_DEFAULT;
 static bool s_dimmed;
+static bool s_dim_preview;   /* web UI slider is being dragged: show the dimmed level */
 static int64_t s_last_activity_us;
 
 static uint8_t clamp_brightness(int pct)
@@ -89,7 +94,8 @@ static void bl_apply(void)
 #if CONFIG_AO_LCD_PIN_BL >= 0
     uint32_t duty = 0;
     if (s_bl_on) {
-        uint32_t p = s_dimmed ? (s_brightness + 1) / 2 : s_brightness;
+        uint32_t p = s_brightness;
+        if ((s_dimmed || s_dim_preview) && s_dim_level < p) p = s_dim_level;
         duty = (BL_MAX_DUTY * p * p + 5000) / 10000;
         if (duty == 0) duty = 1;
     }
@@ -112,11 +118,34 @@ uint8_t display_get_brightness(void)
 esp_err_t display_set_brightness(int percent, bool persist)
 {
     s_brightness = clamp_brightness(percent);
-    display_activity();   /* show the new level undimmed */
+    /* show the new level undimmed and restart the dimming countdown */
+    s_last_activity_us = esp_timer_get_time();
+    s_dimmed = false;
+    s_dim_preview = false;
+    bl_apply();
     if (!persist) return ESP_OK;
     if (settings_get_u32(BL_KEY, BL_DEFAULT) == s_brightness) return ESP_OK;
     esp_err_t err = settings_set_u32(BL_KEY, s_brightness);
     if (err == ESP_OK) ESP_LOGI(TAG, "brightness %u%% saved", s_brightness);
+    return err;
+}
+
+uint8_t display_get_dim_level(void)
+{
+    return s_dim_level;
+}
+
+esp_err_t display_set_dim_level(int percent, bool persist)
+{
+    s_dim_level = clamp_brightness(percent);
+    s_last_activity_us = esp_timer_get_time();
+    s_dimmed = false;
+    s_dim_preview = !persist;   /* while dragging show the dimmed level, afterwards normal again */
+    bl_apply();
+    if (!persist) return ESP_OK;
+    if (settings_get_u32(DIMLVL_KEY, DIMLVL_DEFAULT) == s_dim_level) return ESP_OK;
+    esp_err_t err = settings_set_u32(DIMLVL_KEY, s_dim_level);
+    if (err == ESP_OK) ESP_LOGI(TAG, "dimmed brightness %u%% saved", s_dim_level);
     return err;
 }
 
@@ -195,8 +224,9 @@ void display_frame_begin(void)
 void display_activity(void)
 {
     s_last_activity_us = esp_timer_get_time();
-    if (s_dimmed) {
+    if (s_dimmed || s_dim_preview) {
         s_dimmed = false;
+        s_dim_preview = false;   /* also ends a preview the web UI never finished */
         bl_apply();
     }
 }
@@ -205,14 +235,20 @@ void display_dim_tick(bool hold)
 {
     if (hold) {
         /* something needs the user: stay at full level and restart the countdown, so dimming
-         * can only begin dim_timeout_min after the last waiting agent was answered */
-        display_activity();
+         * can only begin dim_timeout_min after the last waiting agent was answered
+         * (a running dimmed-level preview from the web UI is left alone) */
+        s_last_activity_us = esp_timer_get_time();
+        if (s_dimmed) {
+            s_dimmed = false;
+            bl_apply();
+        }
         return;
     }
     if (s_dimmed || s_dim_timeout_min == 0) return;
     if (esp_timer_get_time() - s_last_activity_us >= (int64_t)s_dim_timeout_min * 60 * 1000000) {
         s_dimmed = true;
-        ESP_LOGI(TAG, "no agent events for %u min, dimming backlight", s_dim_timeout_min);
+        ESP_LOGI(TAG, "no agent events for %u min, dimming backlight to %u%%", s_dim_timeout_min,
+                 s_dim_level < s_brightness ? s_dim_level : s_brightness);
         bl_apply();
     }
 }
@@ -222,6 +258,7 @@ esp_err_t display_init(void)
     s_last_activity_us = esp_timer_get_time();
     s_dim_timeout_min = clamp_dim_timeout((int)settings_get_u32(DIM_KEY, DIM_DEFAULT));
     s_brightness = clamp_brightness((int)settings_get_u32(BL_KEY, BL_DEFAULT));
+    s_dim_level = clamp_brightness((int)settings_get_u32(DIMLVL_KEY, DIMLVL_DEFAULT));
 #if CONFIG_AO_LCD_PIN_BL >= 0
     ledc_timer_config_t bl_timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE,

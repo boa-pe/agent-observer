@@ -13,8 +13,13 @@ void display_backlight(bool on);
 /* Backlight intensity in percent (5..100, clamped). persist = also store it in NVS. */
 esp_err_t display_set_brightness(int percent, bool persist);
 uint8_t display_get_brightness(void);
+/* Backlight level in percent (5..100) used while dimmed; capped at the normal level.
+ * persist = false shows it as a preview (until the next set call or agent event);
+ * persist = true stores it and returns to the normal level. Both restart the dim countdown. */
+esp_err_t display_set_dim_level(int percent, bool persist);
+uint8_t display_get_dim_level(void);
 /* Inactivity dimming: minutes (0..60, 0 = never) without an agent event after which the
- * backlight drops to half the set level. Persisted in NVS. */
+ * backlight drops to the dimmed level. Persisted in NVS. */
 esp_err_t display_set_dim_timeout(int minutes);
 uint8_t display_get_dim_timeout(void);
 bool display_is_dimmed(void);
