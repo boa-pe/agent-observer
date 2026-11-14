@@ -45,6 +45,32 @@ static bool IRAM_ATTR on_color_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_
 #define DIM_DEFAULT 0
 #define DIM_MAX_MIN 60
 
+#define ROT_KEY     "rot"
+
+#ifdef CONFIG_AO_LCD_MIRROR_X
+#define BASE_MIRROR_X true
+#else
+#define BASE_MIRROR_X false
+#endif
+#ifdef CONFIG_AO_LCD_MIRROR_Y
+#define BASE_MIRROR_Y true
+#else
+#define BASE_MIRROR_Y false
+#endif
+
+/* ST7789 frame memory is 240x320; with swap_xy the logical axes are exchanged. */
+#ifdef CONFIG_AO_LCD_SWAP_XY
+#define RAM_W       320
+#define RAM_H       240
+#else
+#define RAM_W       240
+#define RAM_H       320
+#endif
+
+static volatile bool s_rot180;        /* requested */
+static bool s_rot180_applied;         /* currently programmed into the panel */
+static volatile bool s_rot_pending;
+
 static uint8_t s_brightness = BL_DEFAULT;
 static bool s_bl_on;
 /* Inactivity dimming: after s_dim_timeout_min minutes without an agent event the
@@ -117,6 +143,53 @@ esp_err_t display_set_dim_timeout(int minutes)
     esp_err_t err = settings_set_u32(DIM_KEY, s_dim_timeout_min);
     if (err == ESP_OK) ESP_LOGI(TAG, "dim timeout %u min saved", s_dim_timeout_min);
     return err;
+}
+
+/* 180 degrees = mirror both axes; the window offset then counts from the opposite RAM edge. */
+static void rotation_apply(bool rot180)
+{
+    bool mx = BASE_MIRROR_X != rot180;
+    bool my = BASE_MIRROR_Y != rot180;
+    int gx = CONFIG_AO_LCD_X_GAP, gy = CONFIG_AO_LCD_Y_GAP;
+    if (rot180) {
+        gx = RAM_W - DISP_W - gx;
+        gy = RAM_H - DISP_H - gy;
+        if (gx < 0) gx = 0;
+        if (gy < 0) gy = 0;
+    }
+    esp_lcd_panel_mirror(s_panel, mx, my);
+    esp_lcd_panel_set_gap(s_panel, gx, gy);
+    s_rot180_applied = rot180;
+}
+
+int display_get_rotation(void)
+{
+    return s_rot180 ? 180 : 0;
+}
+
+esp_err_t display_set_rotation(int degrees)
+{
+    if (degrees != 0 && degrees != 180) return ESP_ERR_INVALID_ARG;
+    s_rot180 = degrees == 180;
+    s_rot_pending = true;
+    if (settings_get_u32(ROT_KEY, 0) == (uint32_t)degrees) return ESP_OK;
+    esp_err_t err = settings_set_u32(ROT_KEY, degrees);
+    if (err == ESP_OK) ESP_LOGI(TAG, "rotation %d saved", degrees);
+    return err;
+}
+
+void display_frame_begin(void)
+{
+    if (!s_rot_pending) return;
+    s_rot_pending = false;
+    if (s_rot180 == s_rot180_applied) return;
+    /* wait until no band is in flight, so the change does not split a frame */
+    xSemaphoreTake(s_free, portMAX_DELAY);
+    xSemaphoreTake(s_free, portMAX_DELAY);
+    rotation_apply(s_rot180);
+    xSemaphoreGive(s_free);
+    xSemaphoreGive(s_free);
+    ESP_LOGI(TAG, "rotation %d applied", s_rot180 ? 180 : 0);
 }
 
 void display_activity(void)
@@ -222,12 +295,10 @@ esp_err_t display_init(void)
 #if CONFIG_AO_LCD_SWAP_XY
     esp_lcd_panel_swap_xy(s_panel, true);
 #endif
-#if CONFIG_AO_LCD_MIRROR_X || CONFIG_AO_LCD_MIRROR_Y
-    esp_lcd_panel_mirror(s_panel, IS_ENABLED(CONFIG_AO_LCD_MIRROR_X), IS_ENABLED(CONFIG_AO_LCD_MIRROR_Y));
-#endif
-    esp_lcd_panel_set_gap(s_panel, CONFIG_AO_LCD_X_GAP, CONFIG_AO_LCD_Y_GAP);
+    s_rot180 = settings_get_u32(ROT_KEY, 0) == 180;
+    rotation_apply(s_rot180);
     esp_lcd_panel_disp_on_off(s_panel, true);
-    ESP_LOGI(TAG, "ST7789 %dx%d ready", DISP_W, DISP_H);
+    ESP_LOGI(TAG, "ST7789 %dx%d ready, rotation %d", DISP_W, DISP_H, s_rot180 ? 180 : 0);
     return ESP_OK;
 }
 
