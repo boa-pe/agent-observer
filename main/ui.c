@@ -629,6 +629,7 @@ static void ui_task(void *arg)
         s_connected = wifi_mgr_connected();
         wifi_mgr_get_ip(s_ip, sizeof(s_ip));
         ui_mode_t mode = s_mode;
+        display_frame_begin();
 
         for (int y0 = 0; y0 < DISP_H; y0 += DISP_BAND_LINES) {
             int lines = DISP_H - y0 < DISP_BAND_LINES ? DISP_H - y0 : DISP_BAND_LINES;

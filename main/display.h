@@ -18,6 +18,13 @@ uint8_t display_get_brightness(void);
 esp_err_t display_set_dim_timeout(int minutes);
 uint8_t display_get_dim_timeout(void);
 bool display_is_dimmed(void);
+/* Display rotation in degrees (0 or 180) on top of the board orientation from Kconfig.
+ * Persisted in NVS and applied at init; a runtime change takes effect at the next frame
+ * (see display_frame_begin). */
+esp_err_t display_set_rotation(int degrees);
+int display_get_rotation(void);
+/* Call before drawing the first band of a frame: applies a pending rotation change. */
+void display_frame_begin(void);
 /* Call on every received agent event: restores full brightness and restarts the countdown. */
 void display_activity(void);
 /* Call periodically (the UI loop does); dims when the timeout has elapsed.

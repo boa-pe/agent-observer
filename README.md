@@ -28,7 +28,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card)
   and kept across reboots. An optional inactivity timeout (0-60 min) halves the backlight when no agent
   event has arrived for that long; the next event restores it. It never dims while an agent is waiting for
-  user input; the countdown starts once no agent is waiting any more.
+  user input; the countdown starts once no agent is waiting any more. The picture can be rotated by
+  180° (*Rotation* in the same card), e.g. to mount the device upside down; applied immediately and on boot.
 - **Firmware updates over the air**: point the device at a GitHub repository/releases page (or a JSON
   manifest / direct `.bin` URL) and it checks periodically and installs new releases itself, with
   automatic rollback if the new firmware fails to come up.
@@ -195,8 +196,8 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | GET | `/api/wifi/networks` | saved networks (no passwords) |
 | POST | `/api/wifi/networks` | `{"ssid":"..","password":"..","preferred":true}` add/update (omit `password` to keep it) |
 | POST | `/api/wifi/networks/delete` | `{"ssid":".."}` |
-| GET | `/api/display` | `{"brightness":100,"adjustable":true,"dim_timeout_min":0,"dimmed":false}` |
-| POST | `/api/display` | `{"brightness":5..100,"dim_timeout_min":0..60}` (either field) apply and store; add `"preview":true` to apply the brightness without storing |
+| GET | `/api/display` | `{"brightness":100,"adjustable":true,"dim_timeout_min":0,"dimmed":false,"rotation":0}` |
+| POST | `/api/display` | `{"brightness":5..100,"dim_timeout_min":0..60,"rotation":0\|180}` (any field) apply and store; add `"preview":true` to apply the brightness without storing |
 | GET | `/api/ota` | update configuration and status |
 | POST | `/api/ota` | `{"url":"https://github.com/o/r","asset":"","auto_update":true,"interval_h":24}` |
 | POST | `/api/ota/check` | check for an update now |
