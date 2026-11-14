@@ -130,6 +130,18 @@ menu "Agent Observer"
             help
                 Hooks are always accepted on port 80 (together with the web UI); a different
                 port starts an extra listener for /api/hook and /api/state. Changeable in the web UI.
+        config AO_OTA_URL
+            string "Default firmware update source URL (empty = none)"
+            default "https://github.com/boa-pe/agent-observer/releases/latest"
+            help
+                Used until a URL is saved from the web UI (Firmware card). Clearing the
+                field in the web UI disables update checks.
+        config AO_OTA_ASSET
+            string "Default firmware asset name filter (empty = automatic choice)"
+            default "agent-observer-fota-esp32c6-lcd147"
+            help
+                Release asset whose name contains this text is installed. Used until the
+                firmware settings are saved from the web UI.
         config AO_AP_SSID_PREFIX
             string "Setup access point SSID prefix"
             default "AgentObserver"

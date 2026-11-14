@@ -620,8 +620,10 @@ static void ota_task(void *arg)
 void ota_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
-    settings_get_str(K_URL, s_cfg.url, sizeof(s_cfg.url));
-    settings_get_str(K_ASSET, s_cfg.asset, sizeof(s_cfg.asset));
+    if (!settings_get_str(K_URL, s_cfg.url, sizeof(s_cfg.url)))
+        strlcpy(s_cfg.url, CONFIG_AO_OTA_URL, sizeof(s_cfg.url)); /* never configured */
+    if (!settings_get_str(K_ASSET, s_cfg.asset, sizeof(s_cfg.asset)))
+        strlcpy(s_cfg.asset, CONFIG_AO_OTA_ASSET, sizeof(s_cfg.asset)); /* never configured */
     s_cfg.auto_update = settings_get_u32(K_AUTO, 1) != 0;
     uint32_t iv = settings_get_u32(K_INT, 24);
     s_cfg.interval_h = iv < 1 ? 1 : iv > 168 ? 168 : iv;

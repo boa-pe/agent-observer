@@ -135,9 +135,13 @@ In the web UI, *Firmware update* card:
   - a JSON manifest ending in `.json`: `{"version":"1.2.0","url":"https://example.com/agent_observer.bin"}`
   - a direct `.bin` URL (e.g. `https://github.com/<owner>/<repo>/releases/latest/download/agent_observer-esp32c6.bin`);
     the version is read from the image header before anything is written.
+
+  Defaults to `https://github.com/boa-pe/agent-observer/releases/latest` (`CONFIG_AO_OTA_URL`) until a URL
+  is saved; saving an empty field disables update checks.
 - **Asset name contains** – only needed when a release has several app `.bin` assets that the automatic
   choice cannot tell apart. Otherwise the asset whose name contains the chip (`esp32c6`, `esp32`, … as a whole
   word) is used, or the only `.bin` (bootloader / partition-table / merged images are ignored).
+  Defaults to `agent-observer-fota-esp32c6-lcd147` (`CONFIG_AO_OTA_ASSET`) until the settings are saved.
 - **Check periodically and install automatically** + interval (1 h – 1 week). The first check runs
   1 minute after Wi-Fi connects. *Check now* only reports; *Update now* installs.
 
