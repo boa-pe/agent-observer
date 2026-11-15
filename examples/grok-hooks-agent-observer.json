@@ -1,0 +1,137 @@
+{
+  "_comment": "Grok. Save as ~/.grok/hooks/agent-observer.json (all sessions) or <project>/.grok/hooks/agent-observer.json (one project; run /hooks-trust). Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. HTTP hooks POST the event JSON directly (no curl, same on every OS) and fail open, so an unreachable device never blocks a tool call. The web UI generates this for you (Connect an agent).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUseFailure",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PermissionDenied",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Notification",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStart",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Stop",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=StopFailure",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

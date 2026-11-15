@@ -76,16 +76,8 @@ static void kind_colors(agent_kind_t k, color_t *body, color_t *shade)
     switch (k) {
     case AGENT_KIND_CLAUDE:  *body = RGB(0xD9, 0x77, 0x57); *shade = RGB(0xA8, 0x50, 0x36); break;
     case AGENT_KIND_COPILOT: *body = RGB(0x7C, 0x6C, 0xF0); *shade = RGB(0x52, 0x44, 0xC0); break;
+    case AGENT_KIND_GROK:    *body = RGB(0xC9, 0xD1, 0xDC); *shade = RGB(0x8A, 0x93, 0xA0); break;
     default:                 *body = RGB(0x2B, 0xB3, 0xA3); *shade = RGB(0x1C, 0x80, 0x74); break;
-    }
-}
-
-static const char *kind_label(agent_kind_t k)
-{
-    switch (k) {
-    case AGENT_KIND_CLAUDE:  return "CLAUDE";
-    case AGENT_KIND_COPILOT: return "COPILOT";
-    default:                 return "AGENT";
     }
 }
 
@@ -191,11 +183,46 @@ static void draw_bubble(const fig_t *f, float cx, float cy, float w, float h, fl
     }
 }
 
+/* Agent logo centred at (cx, cy), fitting in about 18 x 16 units. */
+static void draw_belly_icon(const fig_t *f, agent_kind_t kind, float cx, float cy, color_t c)
+{
+    if (kind == AGENT_KIND_CLAUDE) {
+        /* Claude: radiating starburst of rays with uneven lengths */
+        static const float len[12] = {7.5f, 6.0f, 7.0f, 5.5f, 7.5f, 6.5f, 7.0f, 5.5f, 7.5f, 6.0f, 6.5f, 5.5f};
+        for (int i = 0; i < 12; i++) {
+            float a = i * (TWO_PI / 12) + 0.13f;
+            float ca = cosf(a), sa = sinf(a);
+            fig_line(f, cx + 1.5f * ca, cy + 1.5f * sa, cx + len[i] * ca, cy + len[i] * sa, 1.8f, c);
+        }
+        fig_circle(f, cx, cy, 2.2f, c);
+    } else if (kind == AGENT_KIND_COPILOT) {
+        /* Copilot: helmet head with goggles and two eyes below */
+        fig_circle(f, cx - 10, cy + 1, 2.2f, c); /* ears */
+        fig_circle(f, cx + 10, cy + 1, 2.2f, c);
+        fig_rrect(f, cx - 10, cy - 7, 20, 15, 6, c);
+        for (int side = -1; side <= 1; side += 2) {
+            float gx = cx + side * 4.5f;
+            fig_rrect(f, gx - 3.5f, cy - 5, 7, 5, 2, C_FACE);      /* goggle lenses */
+            fig_rrect(f, cx + side * 2.5f - 0.8f, cy + 2, 1.6f, 3.5f, 0.8f, C_FACE); /* eyes */
+        }
+    } else if (kind == AGENT_KIND_GROK) {
+        /* Grok: open ring cut by a diagonal slash */
+        const float r = 5.5f;
+        const float a0 = -0.15f, a1 = 4.25f; /* ring gap around the slash ends (radians, y down) */
+        const int segs = 14;
+        for (int i = 0; i < segs; i++) {
+            float p = a0 + (a1 - a0) * i / segs, q = a0 + (a1 - a0) * (i + 1) / segs;
+            fig_line(f, cx + r * cosf(p), cy + r * sinf(p), cx + r * cosf(q), cy + r * sinf(q), 1.8f, c);
+        }
+        fig_line(f, cx - 6.5f, cy + 6.5f, cx + 7.5f, cy - 7.5f, 2.0f, c);
+    }
+}
+
 static void draw_robot(const fig_t *f, agent_kind_t kind, agent_state_t st, uint32_t t)
 {
     const float ph = t / 1000.0f;
     /* The figure is painted in the state color (green idle, red working, yellow blinking while
-     * waiting); the agent kind stays recognizable by its antennas, face and the label above. */
+     * waiting); the agent kind stays recognizable by its antennas, face and the logo on its belly. */
     color_t acc = state_color(st);
     color_t body, shade;
     if (st == AGENT_STATE_OFFLINE) {
@@ -239,7 +266,6 @@ static void draw_robot(const fig_t *f, agent_kind_t kind, agent_state_t st, uint
     /* neck + body */
     fig_rrect(f, ox - 7, head_y + 40, 14, 12, 2, shade);
     fig_rrect(f, ox - 26, 84 + ub, 52, 34, 10, body);
-    fig_rrect(f, ox - 16, 91 + ub, 32, 20, 5, shade);
     int pulse;
     switch (st) {
     case AGENT_STATE_WORKING: pulse = (t % 300) < 150 ? 0 : 160; break;
@@ -247,7 +273,17 @@ static void draw_robot(const fig_t *f, agent_kind_t kind, agent_state_t st, uint
     case AGENT_STATE_OFFLINE: pulse = 200; break;
     default: pulse = (int)(90 + 90 * sinf(ph * TWO_PI / 2.0f)); break;
     }
-    fig_circle(f, ox, 101 + ub, 4.5f, gfx_mix(acc, shade, pulse));
+    if (kind == AGENT_KIND_CLAUDE || kind == AGENT_KIND_COPILOT || kind == AGENT_KIND_GROK) {
+        /* belly screen with the agent's logo, gently pulsing with the state */
+        fig_rrect(f, ox - 16, 91 + ub, 32, 20, 5, C_FACE);
+        color_t brand, brand_shade;
+        kind_colors(kind, &brand, &brand_shade);
+        if (st == AGENT_STATE_OFFLINE) brand = C_GRAY;
+        draw_belly_icon(f, kind, ox, 101 + ub, gfx_mix(brand, C_FACE, pulse / 3));
+    } else {
+        fig_rrect(f, ox - 16, 91 + ub, 32, 20, 5, shade);
+        fig_circle(f, ox, 101 + ub, 4.5f, gfx_mix(acc, shade, pulse));
+    }
 
     /* keyboard while working */
     float tapL = 0, tapR = 0;
@@ -311,6 +347,10 @@ static void draw_robot(const fig_t *f, agent_kind_t kind, agent_state_t st, uint
             fig_line(f, ox + side * 14, head_y + 2, ox + side * 21, head_y - 9, 3, shade);
             fig_circle(f, ox + side * 21, head_y - 10, 4, ant);
         }
+    } else if (kind == AGENT_KIND_GROK) {
+        /* single antenna tilted like the slash in the logo */
+        fig_line(f, ox, head_y + 2, ox + 8, head_y - 9, 3, shade);
+        fig_circle(f, ox + 9, head_y - 11, 4.5f, ant);
     } else {
         fig_line(f, ox, head_y + 2, ox, head_y - 9, 3, shade);
         fig_circle(f, ox, head_y - 12, 5, ant);
@@ -507,10 +547,7 @@ static void draw_normal(uint32_t t)
     compute_layout(&l, true);
     const color_t acc = state_color(a->state);
 
-    /* header: kind + index, name */
-    color_t body, shade;
-    kind_colors(a->cfg.kind, &body, &shade);
-    gfx_text(4, 4, kind_label(a->cfg.kind), 1, body);
+    /* header: index, name */
     char idx[24];
     snprintf(idx, sizeof(idx), "%d/%d", s->displayed + 1, s->count);
     gfx_text(DISP_W - 4 - gfx_text_width(idx, 1), 4, idx, 1, C_MUTED);

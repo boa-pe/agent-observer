@@ -13,6 +13,7 @@ typedef enum {
     AGENT_KIND_CLAUDE = 0,
     AGENT_KIND_COPILOT,
     AGENT_KIND_OTHER,
+    AGENT_KIND_GROK, /* appended: kinds are persisted by index */
     AGENT_KIND_COUNT
 } agent_kind_t;
 

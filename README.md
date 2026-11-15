@@ -1,6 +1,6 @@
 # Agent Observer
 
-ESP-IDF firmware that shows what your AI coding agents (Claude Code, GitHub Copilot, or anything
+ESP-IDF firmware that shows what your AI coding agents (Claude Code, GitHub Copilot, Grok, or anything
 that can run a shell command) are doing, on a small LCD with an animated robot and an RGB status LED.
 
 Target board: **Waveshare ESP32-C6-LCD-1.47** (ST7789 172x320, WS2812 LED, BOOT button).
@@ -11,7 +11,7 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Animated agent figure** per state: idle (breathing, looking around), working (typing on a
   keyboard, thought bubble), waiting for you (hopping, waving, "?" bubble), error, offline (sleeping).
   The figure is colored by state like the LED (green idle, red working, blinking yellow waiting, pink error,
-  gray offline); Claude agents have one antenna and a visor, Copilot agents two antennas and round eyes.
+  gray offline); Claude agents have one antenna and a visor, Copilot agents two antennas and round eyes, Grok agents a tilted antenna; each wears its logo on the belly.
 - **RGB LED**: green = idle, red = working, blinking yellow = waiting for user action,
   fast red = error, breathing blue = no Wi-Fi, breathing cyan = no agents configured.
   The LED follows the agent on screen, including when you cycle agents with the button
@@ -91,6 +91,9 @@ reached it keeps retrying with back-off (up to 30 s); use setup mode to add a ne
    VS Code / Copilot CLI: save as `.github/hooks/agent-observer.json` in the repo (see
    [`examples/vscode-hooks-agent-observer.json`](examples/vscode-hooks-agent-observer.json) and
    [`examples/copilot-cli-hooks-agent-observer.json`](examples/copilot-cli-hooks-agent-observer.json)).
+   Grok: save as `~/.grok/hooks/agent-observer.json` or `<project>/.grok/hooks/agent-observer.json`
+   (see [`examples/grok-hooks-agent-observer.json`](examples/grok-hooks-agent-observer.json)); project hooks
+   must be trusted once with `/hooks-trust`.
 
 The hooks POST the event payload to `http://<device>/api/hook/<id>?event=<Event>`, which answers an empty `200`.
 The generated configuration works unchanged on Windows, Linux and macOS:
@@ -103,17 +106,21 @@ The generated configuration works unchanged on Windows, Linux and macOS:
   `/dev/null`) and always exits 0, because a non-zero `preToolUse` hook would deny the tool call in Copilot CLI.
   The bash variant ends in `|| true` for the same reason. Both pass `-H "Expect:"` so large `PostToolUse`
   payloads are not delayed by curl waiting for `100-continue`.
+- **Grok** uses HTTP hooks (`"type": "http"`): Grok POSTs the event JSON to the device itself, so no shell or
+  `curl` is involved. Grok hooks fail open (timeouts and errors never block a tool call). Grok also reads
+  `.claude/settings.json`, so a project that already has Claude Code hooks for another agent reports to that
+  agent from Grok sessions as well.
 
 Event mapping:
 
 | Event | State |
 |---|---|
 | `SessionStart` | idle |
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | working |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | working |
 | `SubagentStart`, `SubagentStop` | unchanged (Claude Code also runs short background agents after `Stop`) |
 | `PreToolUse` for `AskUserQuestion` / `ExitPlanMode`, `PermissionRequest`, `Notification` | **waiting** |
 | `Stop`, `agentStop` | idle (or waiting, see `AO_STOP_IS_WAITING`) |
-| `ErrorOccurred` | error |
+| `ErrorOccurred`, `StopFailure` | error |
 | `SessionEnd` | offline |
 
 Agents with no events for 2 h are marked offline. The timeout (0-240 min, 0 = never) is set in the web UI
@@ -185,7 +192,7 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | Method | Path | Body |
 |---|---|---|
 | GET | `/api/agents` | – |
-| POST | `/api/agents` | `{"id":"backend","name":"Backend","kind":"claude\|copilot\|other"}` |
+| POST | `/api/agents` | `{"id":"backend","name":"Backend","kind":"claude\|copilot\|grok\|other"}` |
 | PUT | `/api/agents/<id>` | `{"name":"..","kind":".."}` or `{"move":-1\|1}` |
 | DELETE | `/api/agents/<id>` | – |
 | POST | `/api/hook/<id>?event=<Event>` | raw hook JSON (optional); replies with an empty `200` |
