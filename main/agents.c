@@ -75,7 +75,7 @@ static uint8_t clamp_offline(int minutes)
 static const char *k_state_names[AGENT_STATE_COUNT] = {
     "offline", "idle", "working", "waiting", "error"
 };
-static const char *k_kind_names[AGENT_KIND_COUNT] = { "claude", "copilot", "other" };
+static const char *k_kind_names[AGENT_KIND_COUNT] = { "claude", "copilot", "other", "grok" };
 
 const char *agent_state_name(agent_state_t st)
 {
@@ -430,7 +430,8 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
 {
     char ev[40] = "", tool[48] = "", ntype[40] = "", msg[AGENT_DETAIL_LEN] = "";
     if (event && event[0]) strlcpy(ev, event, sizeof(ev));
-    else json_find_str(body, "hook_event_name", ev, sizeof(ev));
+    else if (!json_find_str(body, "hook_event_name", ev, sizeof(ev)))
+        json_find_str(body, "hookEventName", ev, sizeof(ev)); /* Grok */
     if (!json_find_str(body, "tool_name", tool, sizeof(tool)))
         json_find_str(body, "toolName", tool, sizeof(tool));
     json_find_str(body, "notification_type", ntype, sizeof(ntype));
@@ -464,8 +465,12 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
             if (tool[0]) { snprintf(dbuf, sizeof(dbuf), "%s", tool); detail = dbuf; }
         }
     } else if (!strcasecmp(ev, "PostToolUse") || !strcasecmp(ev, "PostToolUseFailure") ||
-               !strcasecmp(ev, "PreCompact")) {
+               !strcasecmp(ev, "PreCompact") || !strcasecmp(ev, "PostCompact")) {
         st = AGENT_STATE_WORKING;
+    } else if (!strcasecmp(ev, "PermissionDenied")) { /* Grok: the turn goes on without the tool */
+        st = AGENT_STATE_WORKING;
+        snprintf(dbuf, sizeof(dbuf), "denied %s", tool[0] ? tool : "tool");
+        detail = dbuf;
     } else if (!strcasecmp(ev, "SubagentStart") || !strcasecmp(ev, "SubagentStop")) {
         /* Never change the state: during a turn the main agent is already working (and the
          * subagent's own tool hooks keep it so), while Claude Code also runs short background

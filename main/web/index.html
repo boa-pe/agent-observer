@@ -7,7 +7,7 @@
 <style>
   :root { --bg:#0b1020; --card:#151b2e; --line:#26304a; --text:#e8ecf4; --muted:#8a94a8;
           --idle:#34d048; --working:#f03a2e; --waiting:#ffd400; --error:#ff3d9a; --offline:#7a8496;
-          --claude:#d97757; --copilot:#7c6cf0; --other:#2bb3a3; }
+          --claude:#d97757; --copilot:#7c6cf0; --grok:#c9d1dc; --other:#2bb3a3; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
   main { max-width:880px; margin:0 auto; padding:20px 16px 48px; }
@@ -92,7 +92,7 @@
     <form class="add" id="add">
       <div><label for="a-name">Display name</label><input id="a-name" maxlength="31" required placeholder="Backend refactor"></div>
       <div><label for="a-id">ID (used in hook URL)</label><input id="a-id" maxlength="15" required pattern="[A-Za-z0-9_\-]{1,15}" placeholder="backend"></div>
-      <div><label for="a-kind">Type</label><select id="a-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="other">Other</option></select></div>
+      <div><label for="a-kind">Type</label><select id="a-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="grok">Grok</option><option value="other">Other</option></select></div>
       <div><button class="primary" type="submit">Add</button></div>
     </form>
     <div class="err" id="add-err"></div>
@@ -109,6 +109,7 @@
       <button data-t="claude" class="on">Claude Code</button>
       <button data-t="vscode">VS Code Copilot</button>
       <button data-t="copilot-cli">Copilot CLI</button>
+      <button data-t="grok">Grok</button>
       <button data-t="curl">Manual / curl</button>
     </div>
     <div class="muted" id="hook-help" style="margin-top:10px"></div>
@@ -208,7 +209,7 @@
     <h2>Edit agent</h2>
     <label for="e-name">Display name</label><input id="e-name" maxlength="31" required>
     <label for="e-kind">Type</label>
-    <select id="e-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="other">Other</option></select>
+    <select id="e-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="grok">Grok</option><option value="other">Other</option></select>
     <div class="row" style="margin-top:16px; justify-content:flex-end">
       <button value="cancel" formnovalidate>Cancel</button>
       <button class="primary" value="ok">Save</button>
@@ -218,7 +219,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const KIND_LABEL = { claude:'CLAUDE', copilot:'COPILOT', other:'AGENT' };
+const KIND_LABEL = { claude:'CLAUDE', copilot:'COPILOT', grok:'GROK', other:'AGENT' };
 let agents = [], status = {}, tab = 'claude', editing = null;
 
 async function api(method, url, body) {
@@ -348,6 +349,7 @@ $('setup').onclick = async () => {
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStop', 'SessionEnd'];
 const VSCODE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'SessionEnd'];
 const COPILOT_CLI_EVENTS = ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'postToolUse', 'permissionRequest', 'notification', 'subagentStart', 'subagentStop', 'agentStop', 'errorOccurred', 'sessionEnd'];
+const GROK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionDenied', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'];
 
 function hookUrl(ev) { return 'http://' + ($('hook-host').value || location.host) + '/api/hook/' + $('hook-agent').value + '?event=' + ev; }
 /* Shared curl arguments. "-H Expect:" stops curl from pausing for a 100-continue on big PostToolUse payloads;
@@ -383,6 +385,16 @@ function renderHook() {
     });
     code = JSON.stringify({ version: 1, hooks }, null, 2);
     help = 'Save as <repo>/.github/hooks/agent-observer.json for GitHub Copilot CLI. "bash" runs on Linux/macOS, "powershell" on Windows. Both always exit 0, so an unreachable device never denies a tool call.';
+  } else if (tab === 'grok') {
+    /* Grok "http" hooks POST the event JSON themselves: no shell or curl needed, same on every OS. */
+    const hooks = {};
+    GROK_EVENTS.forEach(ev => {
+      hooks[ev] = [{ hooks: [{ type:'http', url: hookUrl(ev), timeout: 2 }] }];
+    });
+    code = JSON.stringify({ hooks }, null, 2);
+    help = 'Save as ~/.grok/hooks/agent-observer.json (all sessions) or <project>/.grok/hooks/agent-observer.json (one project; trust it with /hooks-trust). ' +
+      'HTTP hooks need no curl and work the same on Windows, Linux and macOS. Grok hooks fail open, so an unreachable device never blocks a tool call. ' +
+      'Grok also reads .claude/settings.json: if that project already has the Claude Code hooks for another agent, Grok will report to that agent too.';
   } else {
     const base = 'http://' + ($('hook-host').value || location.host);
     const ui = 'http://' + (status.hostname ? status.hostname + '.local' : location.host);
