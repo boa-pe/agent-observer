@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "settings.c" "agents.c" "button.c" "status_led.c"
+    SRCS "main.c" "settings.c" "power.c" "agents.c" "button.c" "status_led.c"
          "display.c" "gfx.c" "font5x7.c" "ui.c"
          "wifi_mgr.c" "dns_server.c" "web_server.c" "ota.c"
     INCLUDE_DIRS "."
@@ -8,4 +8,5 @@ idf_component_register(
                   esp_lcd esp_driver_gpio esp_driver_spi esp_driver_ledc
                   json lwip esp_timer esp_app_format
                   app_update esp_https_ota esp_http_client esp_partition mbedtls
+                  esp_pm
 )

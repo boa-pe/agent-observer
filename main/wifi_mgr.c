@@ -179,8 +179,14 @@ esp_err_t wifi_mgr_start_sta(const wifi_list_t *nets)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* Lower latency for incoming hook requests; costs a little power. */
+#if CONFIG_AO_POWER_SAVE
+    /* Modem sleep: the radio wakes for every DTIM beacon, so buffered hook requests and mDNS
+     * queries still arrive (a few hundred ms later at most). Required for automatic light sleep. */
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+#else
+    /* Lowest latency for incoming hook requests, but the radio is always on. */
     esp_wifi_set_ps(WIFI_PS_NONE);
+#endif
     ESP_LOGI(TAG, "%d saved network(s)", nets->count);
     xTaskCreate(sta_task, "wifi_sta", 4096, NULL, 5, NULL);
     return ESP_OK;

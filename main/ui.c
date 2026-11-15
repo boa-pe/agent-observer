@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "agents.h"
 #include "wifi_mgr.h"
+#include "power.h"
 
 #define TWO_PI 6.2831853f
 #define FRAME_MS 40
@@ -35,8 +36,19 @@ static char s_msg_title[32], s_msg_body[96];
 static agents_snapshot_t s_snap; /* refreshed once per frame */
 static char s_ip[20];
 static bool s_connected;
+static TaskHandle_t s_task;
 
-void ui_set_mode(ui_mode_t mode) { s_mode = mode; }
+void ui_wake(void)
+{
+    TaskHandle_t t = s_task;
+    if (t) xTaskNotifyGive(t);
+}
+
+void ui_set_mode(ui_mode_t mode)
+{
+    s_mode = mode;
+    ui_wake();
+}
 void ui_set_boot_progress(int window_pct, int hold_pct)
 {
     s_boot_window_pct = window_pct;
@@ -47,6 +59,7 @@ void ui_set_message(const char *title, const char *body)
     strlcpy(s_msg_title, title, sizeof(s_msg_title));
     strlcpy(s_msg_body, body, sizeof(s_msg_body));
     s_mode = UI_MODE_MESSAGE;
+    ui_wake(); /* messages are shown even in standby */
 }
 
 static color_t state_color(agent_state_t s)
@@ -657,7 +670,25 @@ static void ui_task(void *arg)
     const int64_t t0 = esp_timer_get_time();
     TickType_t last = xTaskGetTickCount();
     bool first = true;
+    bool panel_off = false;
     for (;;) {
+        /* standby: panel and backlight off, no rendering; only the monitor screen sleeps
+         * (boot, setup and messages always show) */
+        if (s_mode == UI_MODE_NORMAL && power_in_standby()) {
+            if (!panel_off) {
+                display_set_power(false);
+                panel_off = true;
+            }
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+            last = xTaskGetTickCount();
+            continue;
+        }
+        if (panel_off) {
+            display_set_power(true);
+            display_activity(); /* wake at full brightness, restart the dim countdown */
+            panel_off = false;
+            first = true;       /* backlight on after the first fresh frame */
+        }
         uint32_t t = (uint32_t)((esp_timer_get_time() - t0) / 1000);
         agents_snapshot(&s_snap);
         bool waiting = false; /* never dim while an agent needs user input */
@@ -696,5 +727,5 @@ static void ui_task(void *arg)
 
 void ui_start(void)
 {
-    xTaskCreate(ui_task, "ui", 6144, NULL, 4, NULL);
+    xTaskCreate(ui_task, "ui", 6144, NULL, 4, &s_task);
 }

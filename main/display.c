@@ -13,6 +13,8 @@
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_pm.h"
+#include "power.h"
 
 static const char *TAG = "display";
 
@@ -32,14 +34,20 @@ static bool IRAM_ATTR on_color_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_
 
 /* Backlight: PWM via LEDC so the brightness can be adjusted at runtime. The level is a
  * percentage (BL_MIN..100) persisted in NVS; the duty follows a square curve so the slider
- * feels roughly linear to the eye. Timer 0 / channel 3 keep clear of the RGB status LED. */
+ * feels roughly linear to the eye. Timer 0 / channel 3 keep clear of the RGB status LED.
+ * With power saving the timer runs from RC_FAST (8-17.5 MHz, hence 10 bit at 5 kHz) so the PWM
+ * keeps running while the CPU is in light sleep. */
 #define BL_KEY      "bl"
 #define BL_DEFAULT  100
 #define BL_MIN      5
 #define BL_TIMER    LEDC_TIMER_0
 #define BL_CHANNEL  LEDC_CHANNEL_3
+#if POWER_LEDC_KEEP_ALIVE
+#define BL_RES      LEDC_TIMER_10_BIT
+#else
 #define BL_RES      LEDC_TIMER_12_BIT
-#define BL_MAX_DUTY ((1u << 12) - 1)
+#endif
+#define BL_MAX_DUTY ((1u << BL_RES) - 1)
 
 #define DIM_KEY     "bl_dim"
 #define DIM_DEFAULT 0
@@ -76,6 +84,12 @@ static volatile bool s_rot_pending;
 
 static uint8_t s_brightness = BL_DEFAULT;
 static bool s_bl_on;
+static bool s_panel_on = true;
+#if CONFIG_PM_ENABLE && !POWER_LEDC_KEEP_ALIVE && CONFIG_AO_LCD_PIN_BL >= 0
+/* the backlight PWM would stop in light sleep: only allow it while the backlight is off */
+#define BL_PM_LOCK 1
+static esp_pm_lock_handle_t s_bl_pm_lock;
+#endif
 /* Inactivity dimming: after s_dim_timeout_min minutes without an agent event the
  * backlight runs at s_dim_level (never above s_brightness) until the next event. 0 = disabled. */
 static uint8_t s_dim_timeout_min = DIM_DEFAULT;
@@ -106,8 +120,34 @@ static void bl_apply(void)
 
 void display_backlight(bool on)
 {
+#if BL_PM_LOCK
+    if (s_bl_pm_lock && on != s_bl_on) {
+        if (on) esp_pm_lock_acquire(s_bl_pm_lock);
+        else esp_pm_lock_release(s_bl_pm_lock);
+    }
+#endif
     s_bl_on = on;
     bl_apply();
+}
+
+void display_set_power(bool on)
+{
+    if (on == s_panel_on) return;
+    if (!on) display_backlight(false);
+    /* wait until no band is in flight */
+    xSemaphoreTake(s_free, portMAX_DELAY);
+    xSemaphoreTake(s_free, portMAX_DELAY);
+    if (on) {
+        esp_lcd_panel_disp_sleep(s_panel, false);   /* SLPOUT, waits for the panel to wake */
+        esp_lcd_panel_disp_on_off(s_panel, true);
+    } else {
+        esp_lcd_panel_disp_on_off(s_panel, false);
+        esp_lcd_panel_disp_sleep(s_panel, true);    /* SLPIN: panel draws only a few uA */
+    }
+    xSemaphoreGive(s_free);
+    xSemaphoreGive(s_free);
+    s_panel_on = on;
+    ESP_LOGI(TAG, "panel %s", on ? "on" : "off");
 }
 
 uint8_t display_get_brightness(void)
@@ -265,7 +305,7 @@ esp_err_t display_init(void)
         .duty_resolution = BL_RES,
         .timer_num = BL_TIMER,
         .freq_hz = 5000,
-        .clk_cfg = LEDC_AUTO_CLK,
+        .clk_cfg = POWER_LEDC_CLK,
     };
     ESP_RETURN_ON_ERROR(ledc_timer_config(&bl_timer), TAG, "backlight timer");
     ledc_channel_config_t bl_ch = {
@@ -274,11 +314,17 @@ esp_err_t display_init(void)
         .channel = BL_CHANNEL,
         .timer_sel = BL_TIMER,
         .duty = 0,
+#if POWER_LEDC_KEEP_ALIVE
+        .sleep_mode = LEDC_SLEEP_MODE_KEEP_ALIVE,
+#endif
 #if !CONFIG_AO_LCD_BL_ACTIVE_HIGH
         .flags.output_invert = 1,
 #endif
     };
     ESP_RETURN_ON_ERROR(ledc_channel_config(&bl_ch), TAG, "backlight channel");
+#if BL_PM_LOCK
+    esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "backlight", &s_bl_pm_lock);
+#endif
     display_backlight(false);
 #endif
 

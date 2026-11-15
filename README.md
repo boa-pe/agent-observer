@@ -30,6 +30,11 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   *Dimmed* level (default 50 %, never above the normal level) when no agent event has arrived for that long; the next event restores it. It never dims while an agent is waiting for
   user input; the countdown starts once no agent is waiting any more. The picture can be rotated by
   180° (*Rotation* in the same card), e.g. to mount the device upside down; applied immediately and on boot.
+- **Power saving**: when every agent has been offline for 15 min (*Off after* in the *Display* card, 0-240 min,
+  0 = never; kept across reboots), the display (backlight and panel) and the LED switch off and the device only keeps
+  Wi-Fi alive. The next agent event switches everything on again; a button press does too (for at least a minute,
+  without cycling agents). During normal operation the CPU scales its clock down and sleeps automatically between
+  animation frames and Wi-Fi beacons, and the radio uses modem sleep. See [Power saving](#power-saving).
 - **Firmware updates over the air**: point the device at a GitHub repository/releases page (or a JSON
   manifest / direct `.bin` URL) and it checks periodically and installs new releases itself, with
   automatic rollback if the new firmware fails to come up.
@@ -130,6 +135,28 @@ Hooks are push-only, so after a reboot the device cannot ask agents for their st
 saves every state change (coalesced over 10 s, and immediately before any software reboot such as
 an OTA update) and restores it at boot, shown as *restored* until the agent sends its next event.
 If the agent changed state while the board was off, the restored state is outdated until then.
+
+## Power saving
+
+Enabled by `CONFIG_AO_POWER_SAVE` (menuconfig, *Agent Observer → Power saving*, on by default), which turns on
+ESP-IDF power management (`CONFIG_PM_ENABLE`, `CONFIG_FREERTOS_USE_TICKLESS_IDLE`):
+
+- **CPU**: runs at full speed only while drawing a frame or handling a request, otherwise at the crystal frequency,
+  and enters light sleep whenever all tasks are idle (between animation frames, and almost always in standby).
+  The button is interrupt-driven and wakes the chip; the LED task only runs while its pattern animates.
+- **Wi-Fi**: modem sleep (`WIFI_PS_MIN_MODEM`) instead of an always-on radio. The station still wakes for every DTIM
+  beacon, so hook requests and mDNS lookups arrive, just up to a few hundred ms later (depends on the router's
+  beacon/DTIM interval).
+- **Backlight / LED PWM** are clocked from RC_FAST so they keep running in light sleep (ESP-IDF 5.4+; with older
+  versions light sleep is only used while the backlight is off).
+- **Standby** (all agents offline for the *Off after* time): backlight off, panel in sleep mode, LED off, no
+  rendering, housekeeping once per second.
+
+USB Serial/JTAG (the USB-C port of ESP32-C6 boards) does not work during light sleep. By default
+`CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION` is enabled with power saving, so light sleep is skipped while a USB host is
+connected: flashing and `idf.py monitor` keep working, and the device sleeps on a USB charger or while the PC is
+suspended. Disable that option for the lowest consumption on PC power (then enter download mode with the BOOT
+button to flash, or use OTA). Boards with a USB-UART bridge (e.g. LILYGO T-Display) are not affected.
 
 ## Firmware updates (OTA)
 

@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "power.h"
 
 #if CONFIG_AO_LED_WS2812
 #include "led_strip.h"
@@ -15,6 +16,7 @@ static led_strip_handle_t s_strip;
 
 static volatile led_pattern_t s_pattern = LED_PATTERN_OFF;
 static volatile uint32_t s_rgb;
+static TaskHandle_t s_task;
 
 static void hw_write(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -66,7 +68,12 @@ static void led_task(void *arg)
             hw_write(rr, gg, bb);
             last = out;
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        if (s_pattern == LED_PATTERN_OFF || s_pattern == LED_PATTERN_SOLID) {
+            /* nothing to animate: sleep until status_led_set() changes something */
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
     }
 }
 #endif
@@ -92,7 +99,7 @@ void status_led_init(void)
         .duty_resolution = LEDC_TIMER_8_BIT,
         .timer_num = LEDC_TIMER_1,
         .freq_hz = 5000,
-        .clk_cfg = LEDC_AUTO_CLK,
+        .clk_cfg = POWER_LEDC_CLK, /* must match the backlight: low-speed timers share one clock */
     };
     ESP_ERROR_CHECK(ledc_timer_config(&t));
     const int pins[3] = { CONFIG_AO_LED_PIN_R, CONFIG_AO_LED_PIN_G, CONFIG_AO_LED_PIN_B };
@@ -103,18 +110,25 @@ void status_led_init(void)
             .channel = ch,
             .timer_sel = LEDC_TIMER_1,
             .duty = 0,
+#if POWER_LEDC_KEEP_ALIVE
+            .sleep_mode = LEDC_SLEEP_MODE_KEEP_ALIVE,
+#endif
         };
         ESP_ERROR_CHECK(ledc_channel_config(&c));
     }
 #endif
     hw_write(0, 0, 0);
 #if !CONFIG_AO_LED_NONE
-    xTaskCreate(led_task, "led", 2560, NULL, 3, NULL);
+    xTaskCreate(led_task, "led", 2560, NULL, 3, &s_task);
 #endif
 }
 
 void status_led_set(led_pattern_t p, uint8_t r, uint8_t g, uint8_t b)
 {
-    s_rgb = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+    uint32_t rgb = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+    if (rgb == s_rgb && p == s_pattern) return; /* called every tick: don't wake the task */
+    s_rgb = rgb;
     s_pattern = p;
+    TaskHandle_t t = s_task;
+    if (t) xTaskNotifyGive(t);
 }
