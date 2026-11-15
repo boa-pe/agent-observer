@@ -62,6 +62,20 @@ esp_err_t agents_set_state(const char *id, agent_state_t st, const char *detail)
 /* Map a Claude Code / Copilot hook event to a state. event may be NULL (then taken from body). */
 esp_err_t agents_handle_hook(const char *id, const char *event, const char *body);
 
+/* Diagnostics: the most recent hook events as received (newest first), whether or not they
+ * matched an agent or changed its state. */
+#define AGENT_EVENT_LOG 32
+typedef struct {
+    int64_t t_us;               /* esp_timer time of arrival */
+    char id[AGENT_ID_LEN];
+    char event[24];
+    char tool[24];
+    char session[9];            /* first 8 chars of session_id / sessionId, if present */
+    int8_t state;               /* resulting agent_state_t, -1 = unknown event / unknown agent */
+    int8_t prev;                /* agent state before the event, -1 = unknown agent */
+} agent_event_t;
+int agents_get_events(agent_event_t *out, int max);
+
 /* Minutes (0..240, 0 = never) without any event after which an agent is marked offline.
  * Persisted in NVS; the default comes from CONFIG_AO_STALE_TIMEOUT_MIN. */
 esp_err_t agents_set_offline_timeout(int minutes);

@@ -80,6 +80,11 @@
       <span class="muted">minutes without any event from an agent, it is marked offline (0 = never).</span>
     </div>
     <div class="err" id="off-err"></div>
+    <details id="ev" style="margin-top:12px">
+      <summary class="muted" style="cursor:pointer">Recent hook events (diagnostics)</summary>
+      <div class="muted" style="margin:6px 0">Last 32 events as received by the device, newest first. Refreshes while open.</div>
+      <div style="overflow-x:auto"><table id="ev-tab" style="width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums"></table></div>
+    </details>
   </section>
 
   <section class="card">
@@ -600,6 +605,23 @@ $('ota').addEventListener('input', () => { otaDirty = true; $('o-check').disable
 $('o-check').onclick = () => otaAction('/api/ota/check');
 $('o-rollback').onclick = () => otaAction('/api/ota/rollback', 'Switch back to the previous firmware and reboot? The current version will not be installed automatically again.');
 $('o-update').onclick = () => otaAction('/api/ota/update', 'Download and install the newest firmware if it is newer than the running one? The device reboots afterwards.');
+
+/* ---------- hook event log ---------- */
+function ago(ms) { return ms < 1000 ? ms + ' ms' : ms < 120000 ? (ms / 1000).toFixed(1) + ' s' : Math.round(ms / 60000) + ' min'; }
+async function loadEvents() {
+  if (!$('ev').open) return;
+  try {
+    const d = await api('GET', '/api/events');
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const td = 'style="padding:3px 8px 3px 0; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap"';
+    $('ev-tab').innerHTML = '<tr>' + ['ago','agent','event','tool','session','state'].map(h => `<th ${td}>${h}</th>`).join('') + '</tr>' +
+      (d.events.length ? d.events.map(e => `<tr><td ${td}>${ago(e.age_ms)}</td><td ${td}>${esc(e.id)}</td><td ${td}>${esc(e.event)}</td>` +
+        `<td ${td}>${esc(e.tool)}</td><td ${td}>${esc(e.session)}</td><td ${td}>${esc(e.from)} → ${esc(e.to)}</td></tr>`).join('')
+       : `<tr><td ${td} colspan="6">no events since boot</td></tr>`);
+  } catch (e) {}
+}
+$('ev').addEventListener('toggle', loadEvents);
+setInterval(loadEvents, 2000);
 
 refresh().then(loadStatus).then(loadOta).then(loadWifi).then(loadDisplay);
 setInterval(loadWifi, 30000);

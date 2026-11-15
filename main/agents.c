@@ -50,6 +50,11 @@ typedef struct {
     saved_state_t s[AGENT_MAX];
 } states_blob_t;
 
+/* Ring buffer of recent hook events (diagnostics, RAM only). Guarded by s_lock. */
+static agent_event_t s_events[AGENT_EVENT_LOG];
+static int s_event_head;   /* next slot to write */
+static int s_event_count;
+
 static bool s_states_dirty;
 static int64_t s_states_dirty_since;
 
@@ -392,6 +397,35 @@ static bool is_question_tool(const char *tool)
     return false;
 }
 
+static void log_event(const char *id, const char *ev, const char *tool, const char *sid, int state)
+{
+    LOCK();
+    agent_event_t *e = &s_events[s_event_head];
+    memset(e, 0, sizeof(*e));
+    e->t_us = esp_timer_get_time();
+    strlcpy(e->id, id, sizeof(e->id));
+    strlcpy(e->event, ev, sizeof(e->event));
+    strlcpy(e->tool, tool, sizeof(e->tool));
+    strlcpy(e->session, sid, sizeof(e->session));
+    int i = find_locked(id);
+    e->prev = i >= 0 ? (int8_t)s_agents[i].state : -1;
+    /* state -2: event leaves the state unchanged */
+    e->state = i < 0 ? -1 : state == -2 ? e->prev : (int8_t)state;
+    s_event_head = (s_event_head + 1) % AGENT_EVENT_LOG;
+    if (s_event_count < AGENT_EVENT_LOG) s_event_count++;
+    UNLOCK();
+}
+
+int agents_get_events(agent_event_t *out, int max)
+{
+    LOCK();
+    int n = s_event_count < max ? s_event_count : max;
+    for (int k = 0; k < n; k++)
+        out[k] = s_events[(s_event_head - 1 - k + AGENT_EVENT_LOG) % AGENT_EVENT_LOG];
+    UNLOCK();
+    return n;
+}
+
 esp_err_t agents_handle_hook(const char *id, const char *event, const char *body)
 {
     char ev[40] = "", tool[48] = "", ntype[40] = "", msg[AGENT_DETAIL_LEN] = "";
@@ -401,10 +435,17 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
         json_find_str(body, "toolName", tool, sizeof(tool));
     json_find_str(body, "notification_type", ntype, sizeof(ntype));
     json_find_str(body, "message", msg, sizeof(msg));
+    char sid[40] = "";
+    if (!json_find_str(body, "session_id", sid, sizeof(sid)))
+        json_find_str(body, "sessionId", sid, sizeof(sid));
 
-    if (!ev[0]) return ESP_ERR_INVALID_ARG;
+    if (!ev[0]) {
+        log_event(id, "(none)", tool, sid, -1);
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    agent_state_t st;
+    agent_state_t st = AGENT_STATE_WORKING;
+    bool keep = false;   /* event only proves the agent is alive; state unchanged */
     const char *detail = NULL;
     char dbuf[AGENT_DETAIL_LEN];
 
@@ -423,9 +464,14 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
             if (tool[0]) { snprintf(dbuf, sizeof(dbuf), "%s", tool); detail = dbuf; }
         }
     } else if (!strcasecmp(ev, "PostToolUse") || !strcasecmp(ev, "PostToolUseFailure") ||
-               !strcasecmp(ev, "SubagentStart") || !strcasecmp(ev, "SubagentStop") ||
                !strcasecmp(ev, "PreCompact")) {
         st = AGENT_STATE_WORKING;
+    } else if (!strcasecmp(ev, "SubagentStart") || !strcasecmp(ev, "SubagentStop")) {
+        /* Never change the state: during a turn the main agent is already working (and the
+         * subagent's own tool hooks keep it so), while Claude Code also runs short background
+         * agents after a turn has ended - their SubagentStop arrived after Stop and left the
+         * observer stuck in "working". */
+        keep = true;
     } else if (!strcasecmp(ev, "PermissionRequest")) {
         st = AGENT_STATE_WAITING;
         snprintf(dbuf, sizeof(dbuf), "allow %s?", tool[0] ? tool : "tool");
@@ -449,12 +495,19 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
         /* allow ?event=working etc. */
     } else {
         ESP_LOGW(TAG, "unknown hook event '%s'", ev);
+        log_event(id, ev, tool, sid, -1);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    ESP_LOGD(TAG, "%s: hook %s%s%s", id, ev, tool[0] ? " " : "", tool);
+    log_event(id, ev, tool, sid, keep ? -2 : (int)st);
     LOCK();
     int i = find_locked(id);
-    if (i >= 0) {
+    if (i >= 0 && keep) {
+        s_agents[i].last_event_us = esp_timer_get_time();
+        s_agents[i].restored = false;
+        s_version++;
+    } else if (i >= 0) {
         /* Keep the waiting state when a tool runs only after the user answered;
          * PreToolUse for the question tool itself already put us in WAITING. */
         set_state_locked(i, st, detail ? detail : "");

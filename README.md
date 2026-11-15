@@ -109,7 +109,8 @@ Event mapping:
 | Event | State |
 |---|---|
 | `SessionStart` | idle |
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Subagent*` | working |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | working |
+| `SubagentStart`, `SubagentStop` | unchanged (Claude Code also runs short background agents after `Stop`) |
 | `PreToolUse` for `AskUserQuestion` / `ExitPlanMode`, `PermissionRequest`, `Notification` | **waiting** |
 | `Stop`, `agentStop` | idle (or waiting, see `AO_STOP_IS_WAITING`) |
 | `ErrorOccurred` | error |
@@ -192,6 +193,7 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | POST | `/api/agents/settings` | `{"offline_timeout_min":0..240}` mark agents offline after that many minutes without events (0 = never); also reported by `GET /api/agents` |
 | POST | `/api/network` | `{"hostname":"agent-observer-2","hook_port":8080}` store mDNS name and agent status port, then restart (`GET /api/status` reports both) |
 | GET | `/api/status` | – |
+| GET | `/api/events` | last 32 hook events as received, newest first: `{"events":[{"age_ms":1200,"id":"backend","event":"Stop","session":"8536c316","from":"working","to":"idle"}]}` (`to` is `ignored` for unknown events / agents). Also in the web UI under *Monitored agents → Recent hook events* |
 | POST | `/api/setup` | reboot into Wi-Fi setup |
 | GET | `/api/wifi/networks` | saved networks (no passwords) |
 | POST | `/api/wifi/networks` | `{"ssid":"..","password":"..","preferred":true}` add/update (omit `password` to keep it) |

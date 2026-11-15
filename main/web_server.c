@@ -178,6 +178,28 @@ static esp_err_t h_agents_get(httpd_req_t *req)
     return send_json(req, root);
 }
 
+/* GET /api/events   the last hook events as received, newest first (diagnostics) */
+static esp_err_t h_events_get(httpd_req_t *req)
+{
+    static agent_event_t ev[AGENT_EVENT_LOG]; /* main server only: single-threaded */
+    int n = agents_get_events(ev, AGENT_EVENT_LOG);
+    int64_t now = esp_timer_get_time();
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(root, "events");
+    for (int k = 0; k < n; k++) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddNumberToObject(o, "age_ms", (double)((now - ev[k].t_us) / 1000));
+        cJSON_AddStringToObject(o, "id", ev[k].id);
+        cJSON_AddStringToObject(o, "event", ev[k].event);
+        if (ev[k].tool[0]) cJSON_AddStringToObject(o, "tool", ev[k].tool);
+        if (ev[k].session[0]) cJSON_AddStringToObject(o, "session", ev[k].session);
+        cJSON_AddStringToObject(o, "from", ev[k].prev >= 0 ? agent_state_name(ev[k].prev) : "?");
+        cJSON_AddStringToObject(o, "to", ev[k].state >= 0 ? agent_state_name(ev[k].state) : "ignored");
+        cJSON_AddItemToArray(arr, o);
+    }
+    return send_json(req, root);
+}
+
 /* POST /api/agents/settings   body: {"offline_timeout_min":0..240}  (0 = never mark offline) */
 static esp_err_t h_agents_settings(httpd_req_t *req)
 {
@@ -662,6 +684,7 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/agents/*", HTTP_DELETE, h_agents_delete);
     REG(h, "/api/hook/*", HTTP_POST, h_hook);
     REG(h, "/api/state/*", HTTP_POST, h_state);
+    REG(h, "/api/events", HTTP_GET, h_events_get);
     REG(h, "/api/status", HTTP_GET, h_status);
     REG(h, "/api/setup", HTTP_POST, h_enter_setup);
     REG(h, "/api/network", HTTP_POST, h_network_set);
