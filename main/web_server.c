@@ -18,6 +18,7 @@
 #include "ui.h"
 #include "ota.h"
 #include "display.h"
+#include "power.h"
 
 static const char *TAG = "web";
 
@@ -400,17 +401,21 @@ static cJSON *display_to_json(void)
     cJSON_AddNumberToObject(o, "dim_timeout_min", display_get_dim_timeout());
     cJSON_AddBoolToObject(o, "dimmed", display_is_dimmed());
     cJSON_AddNumberToObject(o, "rotation", display_get_rotation());
+    cJSON_AddNumberToObject(o, "standby_timeout_min", power_get_standby_timeout());
+    cJSON_AddBoolToObject(o, "standby", power_in_standby());
     return o;
 }
 
 static esp_err_t h_display_get(httpd_req_t *req) { return send_json(req, display_to_json()); }
 
 /* POST /api/display   body: {"brightness":5..100, "dim_brightness":5..100, "preview":false,
- *                            "dim_timeout_min":0..60, "rotation":0|180}
+ *                            "dim_timeout_min":0..60, "rotation":0|180, "standby_timeout_min":0..240}
  * Fields are optional. preview=true applies brightness / dim_brightness without storing it (live
  * slider feedback; dim_brightness is then shown on the panel). dim_brightness: level used while
  * dimmed (capped at brightness). dim_timeout_min: minutes without an agent event before the
- * backlight drops to dim_brightness (0 = never); always stored. rotation: degrees, stored and applied at the next frame. */
+ * backlight drops to dim_brightness (0 = never); always stored. rotation: degrees, stored and applied at the next frame.
+ * standby_timeout_min: minutes all agents must be offline before the display switches off (0 = never); stored.
+ * Any change switches a display in standby on again (for at least a minute) so the result is visible. */
 static esp_err_t h_display_set(httpd_req_t *req)
 {
     char *body = read_body(req, 256);
@@ -422,24 +427,29 @@ static esp_err_t h_display_set(httpd_req_t *req)
     const cJSON *db = cJSON_GetObjectItem(j, "dim_brightness");
     const cJSON *dt = cJSON_GetObjectItem(j, "dim_timeout_min");
     const cJSON *rot = cJSON_GetObjectItem(j, "rotation");
+    const cJSON *sb = cJSON_GetObjectItem(j, "standby_timeout_min");
     const char *err = NULL;
     if (b && (!cJSON_IsNumber(b) || b->valueint < 5 || b->valueint > 100)) err = "brightness must be 5..100";
     if (db && (!cJSON_IsNumber(db) || db->valueint < 5 || db->valueint > 100)) err = "dim_brightness must be 5..100";
     if (dt && (!cJSON_IsNumber(dt) || dt->valueint < 0 || dt->valueint > 60)) err = "dim_timeout_min must be 0..60";
     if (rot && (!cJSON_IsNumber(rot) || (rot->valueint != 0 && rot->valueint != 180))) err = "rotation must be 0 or 180";
-    if (!b && !db && !dt && !rot && !err) err = "nothing to set";
+    if (sb && (!cJSON_IsNumber(sb) || sb->valueint < 0 || sb->valueint > 240)) err = "standby_timeout_min must be 0..240";
+    if (!b && !db && !dt && !rot && !sb && !err) err = "nothing to set";
     if (err) {
         cJSON_Delete(j);
         return send_error(req, "400 Bad Request", err);
     }
     bool persist = !(cJSON_IsBool(pv) && cJSON_IsTrue(pv));
     int pct = b ? b->valueint : -1, dim_pct = db ? db->valueint : -1, minutes = dt ? dt->valueint : -1, degrees = rot ? rot->valueint : -1;
+    int standby_min = sb ? sb->valueint : -1;
     cJSON_Delete(j);
+    power_wake();
     esp_err_t e = ESP_OK;
     if (pct >= 0) e = display_set_brightness(pct, persist);
     if (e == ESP_OK && dim_pct >= 0) e = display_set_dim_level(dim_pct, persist);
     if (e == ESP_OK && minutes >= 0) e = display_set_dim_timeout(minutes);
     if (e == ESP_OK && degrees >= 0) e = display_set_rotation(degrees);
+    if (e == ESP_OK && standby_min >= 0) e = power_set_standby_timeout(standby_min);
     if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
     return send_json(req, display_to_json());
 }

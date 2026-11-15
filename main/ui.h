@@ -13,3 +13,5 @@ void ui_set_mode(ui_mode_t mode);
 /* Boot screen: progress of the setup window and of the button hold, 0..100. */
 void ui_set_boot_progress(int window_pct, int hold_pct);
 void ui_set_message(const char *title, const char *body);
+/* Let the UI task re-check standby right away (it sleeps while the display is off). */
+void ui_wake(void);

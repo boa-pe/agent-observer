@@ -9,6 +9,8 @@
  *   3. Normal mode: connect to Wi-Fi, serve the agent management UI and hook API,
  *      animate the displayed agent; the button cycles through agents.
  *      Optionally checks a configured URL (e.g. a GitHub releases page) for new firmware (ota.c).
+ *      When all agents have been offline for a while the display and LED switch off (power.c);
+ *      an agent event or a button press switches them on again.
  */
 #include <stdio.h>
 #include <string.h>
@@ -28,12 +30,14 @@
 #include "dns_server.h"
 #include "web_server.h"
 #include "ota.h"
+#include "power.h"
 
 static const char *TAG = "main";
 
 static void on_button_normal(button_event_t ev)
 {
     if (ev == BUTTON_EVENT_SHORT) {
+        if (power_wake()) return; /* the press that switches the display on doesn't cycle */
         agents_cycle();
     } else if (ev == BUTTON_EVENT_LONG) {
         ESP_LOGI(TAG, "long press: entering setup mode");
@@ -87,22 +91,24 @@ static void start_mdns(void)
 
 }
 
-static void update_led(void)
+static void update_led(const agents_snapshot_t *s)
 {
+    if (power_in_standby()) {
+        status_led_set(LED_PATTERN_OFF, 0, 0, 0);
+        return;
+    }
     if (!wifi_mgr_connected()) {
         status_led_set(LED_PATTERN_BREATHE, 0, 60, 255); /* blue: no network */
         return;
     }
-    static agents_snapshot_t snap;
-    agents_snapshot(&snap);
-    if (snap.count == 0) {
+    if (s->count == 0) {
         status_led_set(LED_PATTERN_BREATHE, 0, 160, 160); /* cyan: nothing configured */
         return;
     }
 #if CONFIG_AO_LED_MODE_DISPLAYED
-    agent_state_t st = snap.displayed >= 0 ? snap.agents[snap.displayed].state : AGENT_STATE_OFFLINE;
+    agent_state_t st = s->displayed >= 0 ? s->agents[s->displayed].state : AGENT_STATE_OFFLINE;
 #else
-    agent_state_t st = agents_aggregate_state(&snap);
+    agent_state_t st = agents_aggregate_state(s);
 #endif
     switch (st) {
     case AGENT_STATE_IDLE:    status_led_set(LED_PATTERN_SOLID, 0, 255, 0); break;
@@ -134,16 +140,20 @@ static void run_normal_mode(const wifi_list_t *nets)
     start_mdns();
     web_server_start_main();
     ota_start(); /* confirms the image once Wi-Fi is up, then checks for updates periodically */
+    static agents_snapshot_t snap;
     for (;;) {
         agents_tick();
-        update_led();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        agents_snapshot(&snap);
+        power_tick(&snap);
+        update_led(&snap);
+        power_wait(100); /* 1 s in standby; agent events and the button cut it short */
     }
 }
 
 void app_main(void)
 {
     ESP_ERROR_CHECK(settings_init());
+    power_init();
     agents_init();
     ota_init();
 

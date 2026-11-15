@@ -10,6 +10,9 @@
 
 esp_err_t display_init(void);
 void display_backlight(bool on);
+/* Panel power: off = backlight off, display off, panel sleep mode (SLPIN); on = wake the panel
+ * (takes ~100 ms) with the backlight still off. Call from the UI task between frames. */
+void display_set_power(bool on);
 /* Backlight intensity in percent (5..100, clamped). persist = also store it in NVS. */
 esp_err_t display_set_brightness(int percent, bool persist);
 uint8_t display_get_brightness(void);

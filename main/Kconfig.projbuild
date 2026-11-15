@@ -184,4 +184,35 @@ menu "Agent Observer"
         endchoice
     endmenu
 
+    menu "Power saving"
+        config AO_POWER_SAVE
+            bool "Wi-Fi modem sleep, CPU frequency scaling and automatic light sleep"
+            default y
+            select PM_ENABLE if SOC_PM_SUPPORTED && !FREERTOS_SMP
+            select FREERTOS_USE_TICKLESS_IDLE if SOC_PM_SUPPORTED && !FREERTOS_SMP
+            imply USJ_NO_AUTO_LS_ON_CONNECTION
+            help
+                The CPU drops to the crystal frequency when idle and sleeps between animation
+                frames and Wi-Fi beacons; the radio uses modem sleep (it still wakes for every
+                DTIM beacon, so hook requests and mDNS keep working, with up to a few hundred ms
+                extra latency). Backlight and LED PWM keep running in light sleep (ESP-IDF 5.4+;
+                with older versions light sleep is only used while the display is off).
+
+                The USB Serial/JTAG port (ESP32-C6/S3 native USB) stops working in light sleep.
+                USJ_NO_AUTO_LS_ON_CONNECTION (enabled by default when available) therefore blocks
+                light sleep while a USB host is connected, so flashing and the serial monitor keep
+                working from a PC; on a USB charger, or while the PC sleeps, light sleep is used.
+                Disable that option for maximum savings (flash in download mode then).
+
+        config AO_STANDBY_TIMEOUT_MIN
+            int "Default: display off and sleep after all agents are offline this many minutes (0 = never)"
+            range 0 240
+            default 15
+            help
+                When every monitored agent has been offline this long, the display (panel and
+                backlight) and the status LED are switched off and the device only keeps Wi-Fi
+                alive. Any agent event or a button press wakes it. Initial value only; it can be
+                changed at runtime from the web UI (stored in NVS).
+    endmenu
+
 endmenu

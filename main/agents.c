@@ -1,5 +1,6 @@
 #include "agents.h"
 #include "display.h"
+#include "power.h"
 #include <stddef.h>
 #include <string.h>
 #include <strings.h>
@@ -348,6 +349,7 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
     if (detail) strlcpy(a->detail, detail, AGENT_DETAIL_LEN);
     s_version++;
     display_activity();
+    power_kick(); /* leave standby right away if the agent came online */
 }
 
 esp_err_t agents_set_state(const char *id, agent_state_t st, const char *detail)
