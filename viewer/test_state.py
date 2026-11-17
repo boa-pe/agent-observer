@@ -5,30 +5,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from state import AgentWall, aggregate_state, map_event, sanitize_payload
-
-
-class SanitizeTests(unittest.TestCase):
-    def test_drops_sensitive_fields(self):
-        raw = {
-            "event": "preToolUse",
-            "toolName": "edit",
-            "repo": "backend",
-            "sessionId": "abc123",
-            "prompt": "secret prompt",
-            "toolArgs": {"path": "/secret"},
-            "toolResult": {"textResultForLlm": "code"},
-            "error": "stack trace",
-            "cwd": "C:/Users/me/Work/backend",
-            "message": "please approve",
-        }
-        clean = sanitize_payload(raw)
-        self.assertEqual(clean["event"], "preToolUse")
-        self.assertEqual(clean["toolName"], "edit")
-        self.assertEqual(clean["repo"], "backend")
-        self.assertEqual(clean["sessionId"], "abc123")
-        for bad in ("prompt", "toolArgs", "toolResult", "error", "cwd", "message"):
-            self.assertNotIn(bad, clean)
+from state import AgentWall, map_event
 
 
 class MapEventTests(unittest.TestCase):
@@ -52,60 +29,56 @@ class MapEventTests(unittest.TestCase):
         self.assertEqual(st, "error")
         self.assertEqual(detail, "error")
 
-    def test_notification_without_message(self):
+    def test_notification_ntypes(self):
+        self.assertEqual(map_event("Notification", ntype="idle_prompt")[0], "idle")
+        self.assertEqual(map_event("Notification", ntype="auth_success")[2], True)
+        st, detail, _ = map_event("Notification", ntype="permission_prompt")
+        self.assertEqual(st, "waiting")
+        self.assertEqual(detail, "needs permission")
         st, detail, _ = map_event("Notification")
         self.assertEqual(st, "waiting")
         self.assertEqual(detail, "needs attention")
 
 
-class AggregateTests(unittest.TestCase):
-    def test_priority(self):
-        self.assertEqual(aggregate_state(["idle", "working"]), "working")
-        self.assertEqual(aggregate_state(["working", "waiting", "error"]), "waiting")
-        self.assertEqual(aggregate_state(["offline"]), "offline")
-
-
 class WallTests(unittest.TestCase):
-    def test_one_card_per_repo_two_sessions(self):
+    def test_one_card_per_agent_id(self):
         w = AgentWall(offline_timeout_min=0)
-        w.handle_hook({"event": "sessionStart", "repo": "api", "sessionId": "s1"})
-        w.handle_hook({"event": "sessionStart", "repo": "api", "sessionId": "s2"})
-        w.handle_hook({"event": "preToolUse", "repo": "api", "sessionId": "s1", "toolName": "edit"})
+        w.handle_hook("backend", "sessionStart")
+        w.handle_hook("backend", "preToolUse", tool="edit")
         agents = w.list_agents()
         self.assertEqual(len(agents), 1)
-        self.assertEqual(agents[0]["repo"], "api")
-        self.assertEqual(agents[0]["sessions"], 2)
+        self.assertEqual(agents[0]["id"], "backend")
         self.assertEqual(agents[0]["state"], "working")
         self.assertEqual(agents[0]["detail"], "edit")
 
-    def test_session_end_removes_card(self):
+    def test_session_end_marks_offline(self):
         w = AgentWall(offline_timeout_min=0)
-        w.handle_hook({"event": "sessionStart", "repo": "web", "session": "a"})
-        w.handle_hook({"event": "sessionEnd", "repo": "web", "session": "a"})
-        self.assertEqual(w.list_agents(), [])
+        w.handle_hook("web", "sessionStart")
+        w.handle_hook("web", "sessionEnd")
+        agents = w.list_agents()
+        self.assertEqual(len(agents), 1)
+        self.assertEqual(agents[0]["state"], "offline")
 
     def test_subagent_does_not_change_state(self):
         w = AgentWall(offline_timeout_min=0)
-        w.handle_hook({"event": "sessionStart", "repo": "x", "sessionId": "1"})
-        w.handle_hook({"event": "Stop", "repo": "x", "sessionId": "1"})
-        w.handle_hook({"event": "subagentStart", "repo": "x", "sessionId": "1"})
-        agents = w.list_agents()
-        self.assertEqual(agents[0]["state"], "idle")
+        w.handle_hook("x", "sessionStart")
+        w.handle_hook("x", "Stop")
+        w.handle_hook("x", "subagentStart")
+        self.assertEqual(w.list_agents()[0]["state"], "idle")
 
-    def test_rejects_raw_sensitive_only_payload(self):
+    def test_rejects_empty(self):
         w = AgentWall()
-        ok = w.handle_hook({"prompt": "hi", "cwd": "/tmp/proj"})
-        self.assertFalse(ok)
+        self.assertFalse(w.handle_hook("", "sessionStart"))
+        self.assertFalse(w.handle_hook("a", ""))
         self.assertEqual(w.list_agents(), [])
 
     def test_stale_timeout(self):
-        w = AgentWall(offline_timeout_min=1)  # 1 minute
-        w.handle_hook({"event": "sessionStart", "repo": "old", "sessionId": "1"})
-        # Force last_event far in the past
+        w = AgentWall(offline_timeout_min=1)
+        w.handle_hook("old", "sessionStart")
         with w._lock:
-            for sess in w._repos["old"]["sessions"].values():
-                sess["last_event_at"] = time.time() - 120
-        self.assertEqual(w.list_agents(), [])
+            w._agents["old"]["last_event_at"] = time.time() - 120
+        agents = w.list_agents()
+        self.assertEqual(agents[0]["state"], "offline")
 
 
 if __name__ == "__main__":

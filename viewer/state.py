@@ -1,4 +1,4 @@
-"""In-memory agent wall: one card per repo, sessions aggregated by urgency."""
+"""In-memory agent wall — same hook semantics as main/agents.c (one card per agent id)."""
 
 from __future__ import annotations
 
@@ -23,53 +23,22 @@ QUESTION_TOOLS = frozenset({
     "ask_followup_question",
 })
 
-# Fields accepted from a stripped hook body (everything else is ignored).
-ALLOW_KEYS = frozenset({
-    "event",
-    "hook_event_name",
-    "hookEventName",
-    "tool",
-    "tool_name",
-    "toolName",
-    "repo",
-    "session",
-    "session_id",
-    "sessionId",
-})
-
 DEFAULT_OFFLINE_TIMEOUT_MIN = 120
 
 
-def sanitize_payload(raw: Any) -> dict[str, str]:
-    """Keep only allowlisted string fields; drop prompt, toolArgs, paths, etc."""
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, str] = {}
-    for k, v in raw.items():
-        if k not in ALLOW_KEYS:
-            continue
-        if isinstance(v, str) and v:
-            out[k] = v
-    return out
-
-
-def _pick(d: dict[str, str], *keys: str) -> str:
-    for k in keys:
-        if k in d and d[k]:
-            return d[k]
-    return ""
-
-
-def map_event(event: str, tool: str = "") -> tuple[str | None, str | None, bool]:
+def map_event(
+    event: str, tool: str = "", ntype: str = ""
+) -> tuple[str | None, str | None, bool]:
     """Return (state, detail, keep). keep=True means touch last_seen only.
 
-    state None means unknown / ignored event.
+    Mirrors agents_handle_hook in main/agents.c (bodyless hooks from origin/main).
     """
     ev = (event or "").strip()
     if not ev:
         return None, None, False
     low = ev.lower()
     tool_l = (tool or "").lower()
+    ntype_l = (ntype or "").lower()
 
     if low == "sessionstart":
         return "idle", "session started", False
@@ -90,7 +59,14 @@ def map_event(event: str, tool: str = "") -> tuple[str | None, str | None, bool]
     if low == "permissionrequest":
         return "waiting", f"allow {tool or 'tool'}?", False
     if low == "notification":
-        # Without message text (stripped), treat as waiting for attention.
+        if ntype_l == "idle_prompt":
+            return "idle", None, False
+        if ntype_l == "auth_success":
+            return None, None, True
+        if ntype_l == "permission_prompt":
+            return "waiting", "needs permission", False
+        if ntype_l == "elicitation_dialog":
+            return "waiting", "input needed", False
         return "waiting", "needs attention", False
     if low in ("stop", "agentstop"):
         return "idle", "done", False
@@ -101,106 +77,83 @@ def map_event(event: str, tool: str = "") -> tuple[str | None, str | None, bool]
     return None, None, False
 
 
-def aggregate_state(states: list[str]) -> str:
-    best = "offline"
-    for s in states:
-        if STATE_PRIO.get(s, 0) > STATE_PRIO.get(best, 0):
-            best = s
-    return best
-
-
 class AgentWall:
+    """One robot per agent id — same model as the LCD slots."""
+
     def __init__(self, offline_timeout_min: int = DEFAULT_OFFLINE_TIMEOUT_MIN):
         self._lock = threading.Lock()
-        self._repos: dict[str, dict[str, Any]] = {}
+        self._agents: dict[str, dict[str, Any]] = {}
         self.offline_timeout_min = max(0, int(offline_timeout_min))
 
-    def handle_hook(self, raw: Any) -> bool:
-        """Apply a sanitized hook payload. Returns True if a known repo was updated."""
-        data = sanitize_payload(raw)
-        event = _pick(data, "event", "hook_event_name", "hookEventName")
-        tool = _pick(data, "tool", "tool_name", "toolName")
-        repo = _pick(data, "repo")
-        session = _pick(data, "session", "session_id", "sessionId") or "_"
-
-        if not repo or not event:
+    def handle_hook(
+        self,
+        agent_id: str,
+        event: str = "",
+        tool: str = "",
+        ntype: str = "",
+    ) -> bool:
+        """Apply a device-style hook. Auto-creates the slot on first event (no web UI)."""
+        agent_id = (agent_id or "").strip()
+        if not agent_id or not event:
             return False
 
-        state, detail, keep = map_event(event, tool)
+        state, detail, keep = map_event(event, tool, ntype)
         if state is None and not keep:
             return False
 
         now = time.time()
         with self._lock:
-            card = self._repos.get(repo)
+            card = self._agents.get(agent_id)
             if card is None:
                 card = {
-                    "repo": repo,
-                    "sessions": {},
+                    "id": agent_id,
+                    "name": agent_id,
+                    "state": "offline",
                     "detail": "",
+                    "kind": "other",
                     "last_event_at": now,
                 }
-                self._repos[repo] = card
+                self._agents[agent_id] = card
 
-            sess = card["sessions"].get(session)
-            if sess is None:
-                sess = {"state": "offline", "last_event_at": now}
-                card["sessions"][session] = sess
-
-            sess["last_event_at"] = now
             card["last_event_at"] = now
-
             if keep:
                 return True
 
-            if state == "offline":
-                # Session ended: drop it. Card vanishes when no sessions remain.
-                card["sessions"].pop(session, None)
-                if not card["sessions"]:
-                    self._repos.pop(repo, None)
-                return True
-
-            sess["state"] = state
+            card["state"] = state
             if detail:
                 card["detail"] = detail[:40]
             elif tool and state == "working":
                 card["detail"] = tool[:40]
+            elif state == "offline":
+                card["detail"] = detail or "session ended"
             return True
 
     def tick(self, now: float | None = None) -> None:
-        """Drop stale sessions / empty cards after offline timeout (0 = never)."""
+        """Mark stale agents offline (same idea as the device timeout)."""
         if self.offline_timeout_min <= 0:
             return
         now = time.time() if now is None else now
         limit = self.offline_timeout_min * 60.0
         with self._lock:
-            dead_repos: list[str] = []
-            for repo, card in self._repos.items():
-                dead_sess: list[str] = []
-                for sid, sess in card["sessions"].items():
-                    if now - sess["last_event_at"] >= limit:
-                        dead_sess.append(sid)
-                for sid in dead_sess:
-                    card["sessions"].pop(sid, None)
-                if not card["sessions"]:
-                    dead_repos.append(repo)
-            for repo in dead_repos:
-                self._repos.pop(repo, None)
+            for card in self._agents.values():
+                if card["state"] == "offline":
+                    continue
+                if now - card["last_event_at"] >= limit:
+                    card["state"] = "offline"
+                    card["detail"] = "stale"
 
     def list_agents(self) -> list[dict[str, Any]]:
         self.tick()
         with self._lock:
-            out: list[dict[str, Any]] = []
-            for repo, card in self._repos.items():
-                states = [s["state"] for s in card["sessions"].values()]
-                if not states:
-                    continue
-                out.append({
-                    "repo": repo,
-                    "state": aggregate_state(states),
-                    "detail": card.get("detail") or "",
-                    "sessions": len(card["sessions"]),
-                    "kind": "copilot",
-                })
-            out.sort(key=lambda a: (-STATE_PRIO.get(a["state"], 0), a["repo"].lower()))
+            out = [
+                {
+                    "id": c["id"],
+                    "name": c["name"],
+                    "state": c["state"],
+                    "detail": c.get("detail") or "",
+                    "kind": c.get("kind") or "other",
+                }
+                for c in self._agents.values()
+            ]
+            out.sort(key=lambda a: (-STATE_PRIO.get(a["state"], 0), a["name"].lower()))
             return out

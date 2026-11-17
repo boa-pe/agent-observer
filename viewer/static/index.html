@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Observer — Copilot wall</title>
+<title>Agent Observer — wall</title>
 <style>
   :root {
     --bg0: #0b1020; --bg1: #171d33; --text: #e8ecf4; --muted: #7a8496;
@@ -36,7 +36,6 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .card canvas {
-    /* Match the 172×320 LCD aspect so bottom labels are not squashed/clipped. */
     width: 172px; height: 320px;
     border-radius: 4px;
     image-rendering: pixelated;
@@ -48,34 +47,34 @@
 </head>
 <body>
 <header>
-  <h1>Copilot wall</h1>
-  <span class="muted">Same figure as the LCD · localhost only</span>
+  <h1>Agent wall</h1>
+  <span class="muted">Same figure and hooks as the LCD · localhost only</span>
 </header>
-<div id="grid"><div class="empty">No agents yet. Start a Copilot session with the user hook installed.</div></div>
+<div id="grid"><div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770 (same /api/hook/AGENT_ID?event=… URLs).</div></div>
 <script src="/static/robot.js"></script>
 <script>
 let agents = [];
 let lastJson = '';
-const cards = new Map(); // repo -> {el, canvas, agent}
+const cards = new Map(); // id -> {el, canvas, agent}
 
 function ensureCard(a) {
-  let rec = cards.get(a.repo);
+  const name = a.name || a.id;
+  let rec = cards.get(a.id);
   if (rec) {
     rec.agent = a;
-    rec.el.querySelector('.name').textContent = a.repo;
-    rec.el.querySelector('.name').title = a.repo;
-    const sessions = a.sessions > 1 ? `${a.sessions} sessions` : '1 session';
-    rec.el.querySelector('.meta').textContent = sessions;
+    rec.el.querySelector('.name').textContent = name;
+    rec.el.querySelector('.name').title = name;
+    rec.el.querySelector('.meta').textContent = a.detail || '';
     return rec;
   }
   const el = document.createElement('article');
   el.className = 'card';
   el.innerHTML = `<div class="name"></div><canvas width="172" height="320"></canvas><div class="meta"></div>`;
-  el.querySelector('.name').textContent = a.repo;
-  el.querySelector('.name').title = a.repo;
-  el.querySelector('.meta').textContent = a.sessions > 1 ? `${a.sessions} sessions` : '1 session';
+  el.querySelector('.name').textContent = name;
+  el.querySelector('.name').title = name;
+  el.querySelector('.meta').textContent = a.detail || '';
   rec = { el, canvas: el.querySelector('canvas'), agent: a };
-  cards.set(a.repo, rec);
+  cards.set(a.id, rec);
   return rec;
 }
 
@@ -92,11 +91,11 @@ async function poll() {
 
     if (!agents.length) {
       cards.clear();
-      grid.innerHTML = '<div class="empty">No agents yet. Start a Copilot session with the user hook installed.</div>';
+      grid.innerHTML = '<div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770 (same /api/hook/AGENT_ID?event=… URLs).</div>';
       return;
     }
 
-    const keep = new Set(agents.map(a => a.repo));
+    const keep = new Set(agents.map(a => a.id));
     for (const key of [...cards.keys()]) {
       if (!keep.has(key)) cards.delete(key);
     }

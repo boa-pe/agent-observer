@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Local Copilot agent wall — listens only on 127.0.0.1:8770."""
+"""Local agent wall — same hook URL shape as the device, on 127.0.0.1:8770."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,12 +16,15 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from state import AgentWall, sanitize_payload  # noqa: E402
+from state import AgentWall  # noqa: E402
 
 HOST = "127.0.0.1"
 PORT = 8770
 STATIC = _HERE / "static"
 WALL = AgentWall()
+
+# Same path as the device: /api/hook/<id>
+_HOOK_PATH = re.compile(r"^/api/hook/([^/]+)/?$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -72,7 +76,6 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._file(STATIC / "index.html", "text/html; charset=utf-8")
             return
-        # Optional static assets under /static/
         if path.startswith("/static/"):
             rel = path[len("/static/") :]
             if ".." in rel or rel.startswith(("/", "\\")):
@@ -89,44 +92,65 @@ class Handler(BaseHTTPRequestHandler):
                     ctype = "text/html; charset=utf-8"
                 elif rel.endswith(".svg"):
                     ctype = "image/svg+xml"
-                elif rel.endswith(".wasm"):
-                    ctype = "application/wasm"
                 self._file(f, ctype)
                 return
         self._empty(404)
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/api/hook":
+        m = _HOOK_PATH.match(parsed.path)
+        if not m:
             self._empty(404)
             return
-        length = int(self.headers.get("Content-Length") or 0)
-        # Caps body so a misconfigured hook cannot dump huge tool results.
-        raw_bytes = self.rfile.read(min(length, 4096)) if length else b""
-        try:
-            raw = json.loads(raw_bytes.decode("utf-8") or "{}") if raw_bytes else {}
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            self._empty(400)
-            return
-        if not isinstance(raw, dict):
-            raw = {}
-        # Event may come from the query when the body was stripped to empty
-        # (bash fallback without python).
+        agent_id = m.group(1)
         qs = parse_qs(parsed.query)
-        if "event" in qs and qs["event"] and "event" not in raw:
-            raw = dict(raw)
-            raw["event"] = qs["event"][0]
-        clean = sanitize_payload(raw)
-        WALL.handle_hook(clean)
+        event = (qs.get("event") or [""])[0]
+        tool = (qs.get("tool") or [""])[0]
+        ntype = (qs.get("ntype") or [""])[0]
+
+        # Optional JSON body (older hooks / scripts) — never required by generated examples.
+        length = int(self.headers.get("Content-Length") or 0)
+        raw_bytes = self.rfile.read(min(length, 4096)) if length else b""
+        if raw_bytes:
+            try:
+                raw = json.loads(raw_bytes.decode("utf-8") or "{}")
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._empty(400)
+                return
+            if isinstance(raw, dict):
+                if not event:
+                    event = (
+                        raw.get("hook_event_name")
+                        or raw.get("hookEventName")
+                        or raw.get("event")
+                        or ""
+                    )
+                if not tool:
+                    tool = raw.get("tool_name") or raw.get("toolName") or raw.get("tool") or ""
+                if not ntype:
+                    ntype = (
+                        raw.get("notification_type")
+                        or raw.get("notificationType")
+                        or raw.get("ntype")
+                        or ""
+                    )
+
+        if not isinstance(event, str):
+            event = ""
+        if not isinstance(tool, str):
+            tool = ""
+        if not isinstance(ntype, str):
+            ntype = ""
+
+        WALL.handle_hook(agent_id, event=event, tool=tool, ntype=ntype)
         # Empty 200 so command hooks never treat the body as hook output.
         self._empty(200)
 
 
 def main() -> None:
-    # Bind loopback only — never 0.0.0.0.
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Agent Observer viewer on http://{HOST}:{PORT}/", flush=True)
-    print("POST allowlisted hooks to /api/hook  |  GET /api/agents", flush=True)
+    print("POST device-style hooks to /api/hook/<id>?event=…  |  GET /api/agents", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
