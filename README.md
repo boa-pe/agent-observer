@@ -55,6 +55,16 @@ idf.py build flash monitor
 > Windows note: the ESP-IDF toolchain cannot build from UNC/network paths. Copy or clone the project
 > to a local drive before running `idf.py`.
 
+### Flashing with ESP Web Tool
+
+For a first install from the browser, download the `agent-observer_webflasher.zip` file and unzip.
+[latest GitHub release](https://github.com/boa-pe/agent-observer/releases/latest) 
+
+Open the [ESP Web Tool](https://esptool.spacehuhn.com/) in a desktop Chromium-based browser, connect the board, and
+select its serial port. Add each `.bin` file and enter the corresponding address from `flash-addresses.txt`, then
+click **Program**. Keep the board connected until flashing completes. Later updates can go over the air
+(see [Firmware updates](#firmware-updates-ota)).
+
 ### Other boards
 
 Pins, panel geometry, LED type and button are all Kconfig options under
@@ -211,6 +221,9 @@ to switch back manually.
    (any prefix works: `release_1.1.0`, `fw-1.1.0`; the first `x.y[.z]` in the tag is the version).
    For several boards, name the assets after the chip, e.g. `agent_observer-esp32c6.bin`,
    `agent_observer-esp32.bin`.
+3. For first-time installs from the browser, also attach the files from `.\scripts\build_release.ps1`
+   (`build\web-flasher`: all `.bin` files and `flash-addresses.txt`, see
+   [Flashing with ESP Web Tool](#flashing-with-esp-web-tool)).
 
 If a tag and the embedded version disagree (tag `v1.1.0` but the image says `1.0.0`), the device notices
 after reading the image header, skips that release and does not download it again.
