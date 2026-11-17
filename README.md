@@ -22,6 +22,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
+- **Browser wall** (`python viewer/server.py` → `http://127.0.0.1:8770/`): grid of Copilot robots,
+  one per repository, fed by a user-level hook that never leaves the laptop.
 - **Several monitors in one network**: the mDNS name (`<name>.local`, default `agent-observer`) and the port
   that accepts agent status are set in the web UI (*Network* card) and stored on the device; the generated hook
   templates use both. Status is always accepted on port 80 as well, so the web UI and old hooks keep working.
@@ -135,6 +137,20 @@ The generated configuration works unchanged on Windows, Linux and macOS:
   because they always POST the whole event JSON, tool input included. Grok hooks fail open (timeouts and errors
   never block a tool call). Grok also reads `.claude/settings.json`, so a project that already has Claude Code hooks
   for another agent reports to that agent from Grok sessions as well.
+
+### Copilot wall (browser, no device)
+
+To see every Copilot repo as a robot grid on the same machine (no ESP board):
+
+```sh
+python viewer/server.py
+```
+
+Open `http://127.0.0.1:8770/`. Copy [`viewer/copilot-user-hooks.json`](viewer/copilot-user-hooks.json)
+to `%USERPROFILE%\.copilot\hooks\agent-observer.json` (or `~/.copilot/hooks/` / `$COPILOT_HOME/hooks/`).
+That user-level hook posts only `event`, tool name, **repo directory name**, and session id to the local viewer —
+one card per repository, sessions aggregated. Regenerate with `python viewer/gen_user_hook.py` if needed.
+Optionally call [`viewer/hook_post.py`](viewer/hook_post.py) from your own hooks.
 
 Event mapping:
 

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Observer — Copilot wall</title>
+<style>
+  :root {
+    --bg0: #0b1020; --bg1: #171d33; --text: #e8ecf4; --muted: #7a8496;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text);
+    font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+    background: linear-gradient(180deg, var(--bg0), var(--bg1));
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 20px 24px 8px;
+  }
+  header h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
+  header .muted { color: var(--muted); font-size: .9rem; }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px; padding: 12px 24px 40px;
+  }
+  .empty {
+    grid-column: 1 / -1; color: var(--muted); padding: 48px 8px; text-align: center;
+  }
+  .card {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .card .name {
+    font-weight: 650; font-size: .95rem; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card canvas {
+    /* Match the 172×320 LCD aspect so bottom labels are not squashed/clipped. */
+    width: 172px; height: 320px;
+    border-radius: 4px;
+    image-rendering: pixelated;
+    background: #0b1020;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .card .meta { color: var(--muted); font-size: .75rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Copilot wall</h1>
+  <span class="muted">Same figure as the LCD · localhost only</span>
+</header>
+<div id="grid"><div class="empty">No agents yet. Start a Copilot session with the user hook installed.</div></div>
+<script src="/static/robot.js"></script>
+<script>
+let agents = [];
+let lastJson = '';
+const cards = new Map(); // repo -> {el, canvas, agent}
+
+function ensureCard(a) {
+  let rec = cards.get(a.repo);
+  if (rec) {
+    rec.agent = a;
+    rec.el.querySelector('.name').textContent = a.repo;
+    rec.el.querySelector('.name').title = a.repo;
+    const sessions = a.sessions > 1 ? `${a.sessions} sessions` : '1 session';
+    rec.el.querySelector('.meta').textContent = sessions;
+    return rec;
+  }
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.innerHTML = `<div class="name"></div><canvas width="172" height="320"></canvas><div class="meta"></div>`;
+  el.querySelector('.name').textContent = a.repo;
+  el.querySelector('.name').title = a.repo;
+  el.querySelector('.meta').textContent = a.sessions > 1 ? `${a.sessions} sessions` : '1 session';
+  rec = { el, canvas: el.querySelector('canvas'), agent: a };
+  cards.set(a.repo, rec);
+  return rec;
+}
+
+async function poll() {
+  const grid = document.getElementById('grid');
+  try {
+    const r = await fetch('/api/agents', { cache: 'no-store' });
+    const data = await r.json();
+    const list = data.agents || [];
+    const dump = JSON.stringify(list);
+    if (dump === lastJson) return;
+    lastJson = dump;
+    agents = list;
+
+    if (!agents.length) {
+      cards.clear();
+      grid.innerHTML = '<div class="empty">No agents yet. Start a Copilot session with the user hook installed.</div>';
+      return;
+    }
+
+    const keep = new Set(agents.map(a => a.repo));
+    for (const key of [...cards.keys()]) {
+      if (!keep.has(key)) cards.delete(key);
+    }
+    grid.replaceChildren(...agents.map(a => ensureCard(a).el));
+  } catch (e) {
+    lastJson = '';
+    agents = [];
+    cards.clear();
+    grid.innerHTML = '<div class="empty">Cannot reach the local viewer server.</div>';
+  }
+}
+
+function frame(now) {
+  const t = now | 0;
+  for (const rec of cards.values()) {
+    AgentRobot.paintCard(rec.canvas, rec.agent, t);
+  }
+  requestAnimationFrame(frame);
+}
+
+poll();
+setInterval(poll, 1000);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
