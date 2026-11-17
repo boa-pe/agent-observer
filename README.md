@@ -22,6 +22,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
+- **Browser wall** (`python viewer/server.py` → `http://127.0.0.1:8770/`): same robots and hook
+  URLs as the LCD, as a grid in the browser (no ESP board required).
 - **Several monitors in one network**: the mDNS name (`<name>.local`, default `agent-observer`) and the port
   that accepts agent status are set in the web UI (*Network* card) and stored on the device; the generated hook
   templates use both. Status is always accepted on port 80 as well, so the web UI and old hooks keep working.
@@ -135,6 +137,19 @@ The generated configuration works unchanged on Windows, Linux and macOS:
   because they always POST the whole event JSON, tool input included. Grok hooks fail open (timeouts and errors
   never block a tool call). Grok also reads `.claude/settings.json`, so a project that already has Claude Code hooks
   for another agent reports to that agent from Grok sessions as well.
+
+### Browser wall (no device)
+
+Same agent figure and the **same hook configuration** as the LCD, shown as a grid on the laptop:
+
+```sh
+python viewer/server.py
+```
+
+Open `http://127.0.0.1:8770/`. In the generated hooks (or the files under [`examples/`](examples/)),
+replace the device host with `127.0.0.1:8770` and keep `AGENT_ID` — the wall accepts
+`POST /api/hook/<id>?event=…` (plus `&tool=` / `&ntype=` when needed), just like the firmware.
+One card appears per agent id on the first event.
 
 Event mapping:
 
