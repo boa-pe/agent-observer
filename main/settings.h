@@ -50,3 +50,5 @@ esp_err_t settings_set_u32(const char *key, uint32_t val);
 /* Raw blob storage for the agent list. */
 esp_err_t settings_load_blob(const char *key, void *buf, size_t *len);
 esp_err_t settings_save_blob(const char *key, const void *buf, size_t len);
+/* Remove a key if present (no-op otherwise). */
+void settings_erase(const char *key);

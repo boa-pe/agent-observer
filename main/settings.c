@@ -211,6 +211,14 @@ esp_err_t settings_save_blob(const char *key, const void *buf, size_t len)
     return err;
 }
 
+void settings_erase(const char *key)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_erase_key(h, key) == ESP_OK) nvs_commit(h); /* ESP_ERR_NVS_NOT_FOUND: nothing to do */
+    nvs_close(h);
+}
+
 /* ---------- network identity ---------- */
 
 #define K_HOSTNAME  "hostname"

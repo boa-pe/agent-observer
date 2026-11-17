@@ -160,7 +160,6 @@ static cJSON *agent_to_json(const agent_t *a, bool displayed, int64_t now)
     cJSON_AddNumberToObject(o, "state_age_s", (double)((now - a->since_us) / 1000000));
     cJSON_AddNumberToObject(o, "last_event_age_s", a->last_event_us ? (double)((now - a->last_event_us) / 1000000) : -1);
     cJSON_AddBoolToObject(o, "displayed", displayed);
-    cJSON_AddBoolToObject(o, "restored", a->restored);
     return o;
 }
 

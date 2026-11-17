@@ -554,6 +554,7 @@ static void ota_task(void *arg)
     bool was_connected = false;
     int64_t conn_since = 0;
     bool confirmed = !running_pending_verify();
+    bool boot_checked = false; /* the once-per-boot check (independent of the periodic schedule) ran */
     for (;;) {
         uint32_t req = 0;
         xTaskNotifyWait(0, UINT32_MAX, &req, pdMS_TO_TICKS(5000));
@@ -592,17 +593,29 @@ static void ota_task(void *arg)
 
         if (req & REQ_RESCHED) schedule_in(periodic ? CONFIG_CHECK_DELAY_S : -1);
 
+        /* Check once per boot as soon as Wi-Fi is up, so a device that is power-cycled more often
+         * than the interval still gets updates. Waits for the running image to be confirmed:
+         * installing while it is pending verify would overwrite the only known-good fallback. */
+        bool boot_check = false;
+        if (!boot_checked && conn && confirmed) {
+            boot_checked = true;
+            boot_check = cfg.url[0] != 0;
+        }
+
         LOCK();
         int64_t next = s_st.next_check_us;
         UNLOCK();
         bool due = periodic && next && esp_timer_get_time() >= next;
-        if (!(req & (REQ_CHECK | REQ_INSTALL)) && !due) continue;
+        if (!(req & (REQ_CHECK | REQ_INSTALL)) && !due && !boot_check) continue;
         if (!conn) {
             set_status(OTA_ERROR, 0, "Wi-Fi not connected");
             if (due) schedule_in(FIRST_CHECK_DELAY_S);
             continue;
         }
-        do_check((req & REQ_INSTALL) || due, (req & (REQ_CHECK | REQ_INSTALL)) != 0);
+        if (boot_check) ESP_LOGI(TAG, "startup update check");
+        /* the boot check installs automatically unless auto-update is switched off (then it only reports) */
+        do_check((req & REQ_INSTALL) || due || (boot_check && cfg.auto_update),
+                 (req & (REQ_CHECK | REQ_INSTALL)) != 0);
         if (periodic) {
             LOCK();
             bool failed = s_st.state == OTA_ERROR;

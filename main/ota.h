@@ -20,6 +20,9 @@
  * state and is confirmed only after Wi-Fi has been up for CONFIRM_STABLE_S without a crash; any
  * reset before that makes the bootloader fall back to the previous slot. A version that failed
  * this way (or was rolled back manually) is remembered and not auto-installed again.
+ *
+ * Besides the periodic check, every boot checks once as soon as Wi-Fi is connected (after an
+ * update: once the new image is confirmed) and, with auto_update on, installs what it finds.
  */
 
 #define OTA_URL_LEN   256

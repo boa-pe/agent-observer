@@ -195,7 +195,7 @@
           <option value="24">day</option><option value="72">3 days</option><option value="168">week</option>
         </select>
       </div>
-      <div class="wide"><label class="check"><input type="checkbox" id="o-auto"> Check periodically and install updates automatically</label></div>
+      <div class="wide"><label class="check"><input type="checkbox" id="o-auto"> Check at startup and periodically, and install updates automatically</label></div>
       <div class="wide row">
         <button class="primary" type="submit">Save</button>
         <button type="button" id="o-check">Check now</button>
@@ -260,7 +260,7 @@ function render() {
     const name = el('div', { className:'name' }, a.name, kind);
     if (a.displayed) name.append(el('span', { className:'shown', textContent:'on screen' }));
     const st = el('span', { className:'state', textContent:a.state, style:'color:var(--' + a.state + ')' });
-    const meta = el('div', { className:'meta' }, st, (a.restored ? ' (restored after restart, waiting for the next event)' : ' for ' + ago(a.state_age_s) + (a.detail ? ' · ' + a.detail : '')) +
+    const meta = el('div', { className:'meta' }, st, (' for ' + ago(a.state_age_s) + (a.detail ? ' · ' + a.detail : '')) +
       ' · id: ' + a.id + ' · last event: ' + (a.last_event_age_s < 0 ? 'never' : ago(a.last_event_age_s) + ' ago'));
     const up = el('button', { textContent:'↑', title:'Move up', disabled: i === 0, onclick: () => act(() => api('PUT', '/api/agents/' + a.id, { move:-1 })) });
     const dn = el('button', { textContent:'↓', title:'Move down', disabled: i === agents.length - 1, onclick: () => act(() => api('PUT', '/api/agents/' + a.id, { move:1 })) });
@@ -354,7 +354,7 @@ $('setup').onclick = async () => {
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStop', 'SessionEnd'];
 const VSCODE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'SessionEnd'];
 const COPILOT_CLI_EVENTS = ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'postToolUse', 'permissionRequest', 'notification', 'subagentStart', 'subagentStop', 'agentStop', 'errorOccurred', 'sessionEnd'];
-const GROK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionDenied', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'];
+const GROK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'PermissionDenied', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'];
 
 function hookUrl(ev) { return 'http://' + ($('hook-host').value || location.host) + '/api/hook/' + $('hook-agent').value + '?event=' + ev; }
 /* Shared curl arguments. "-H Expect:" stops curl from pausing for a 100-continue on big PostToolUse payloads;

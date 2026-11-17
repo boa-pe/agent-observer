@@ -131,10 +131,8 @@ Event mapping:
 Agents with no events for 2 h are marked offline. The timeout (0-240 min, 0 = never) is set in the web UI
 (*Monitored agents* card, *Offline after*) and kept across reboots.
 
-Hooks are push-only, so after a reboot the device cannot ask agents for their state. Instead it
-saves every state change (coalesced over 10 s, and immediately before any software reboot such as
-an OTA update) and restores it at boot, shown as *restored* until the agent sends its next event.
-If the agent changed state while the board was off, the restored state is outdated until then.
+Agent states are not saved: after a reboot every agent shows as offline until it sends its next
+event.
 
 ## Power saving
 

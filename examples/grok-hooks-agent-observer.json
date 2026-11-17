@@ -56,6 +56,17 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
     "PermissionDenied": [
       {
         "hooks": [

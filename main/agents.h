@@ -38,7 +38,6 @@ typedef struct {
     int64_t since_us;           /* when the current state began */
     int64_t last_event_us;      /* last event of any kind (0 = never) */
     char detail[AGENT_DETAIL_LEN];
-    bool restored;              /* state was restored after a reboot; no live event since */
 } agent_t;
 
 typedef struct {
@@ -84,10 +83,8 @@ uint8_t agents_get_offline_timeout(void);
 
 /* Button: show next agent. */
 void agents_cycle(void);
-/* Periodic housekeeping (stale timeout, auto-focus on waiting agents, saving states). */
+/* Periodic housekeeping (stale timeout, auto-focus on waiting agents). */
 void agents_tick(void);
-/* Save pending state changes now (also runs automatically from esp_restart()). */
-void agents_flush_states(void);
 
 const char *agent_state_name(agent_state_t st);
 bool agent_state_from_name(const char *s, agent_state_t *out);

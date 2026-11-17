@@ -31,33 +31,14 @@ static int s_displayed = -1;
 static int64_t s_manual_until_us;
 static uint32_t s_version;
 
-/*
- * Last known states survive reboots and power cuts (hooks are push-only, the device cannot ask
- * agents for their state). Saved separately from the configuration, keyed by id, and only
- * when a state actually changed - coalesced over STATE_SAVE_DELAY_US to limit flash wear.
- */
-#define STATE_KEY           "astate"
-#define STATE_VERSION       1
-#define STATE_SAVE_DELAY_US (10 * 1000000LL)
-
-typedef struct {
-    char id[AGENT_ID_LEN];
-    uint8_t state;
-} saved_state_t;
-
-typedef struct {
-    uint8_t version;
-    uint8_t count;
-    saved_state_t s[AGENT_MAX];
-} states_blob_t;
+/* Agent states are runtime-only: every agent starts offline after a reboot. Older firmware
+ * saved them under this key; it is erased at boot to free the NVS space. */
+#define LEGACY_STATE_KEY "astate"
 
 /* Ring buffer of recent hook events (diagnostics, RAM only). Guarded by s_lock. */
 static agent_event_t s_events[AGENT_EVENT_LOG];
 static int s_event_head;   /* next slot to write */
 static int s_event_count;
-
-static bool s_states_dirty;
-static int64_t s_states_dirty_since;
 
 /* Offline timeout: an agent with no event for this many minutes is marked offline (0 = never).
  * Runtime setting stored in NVS; the Kconfig value is the default. */
@@ -142,76 +123,6 @@ static esp_err_t persist_locked(void)
     return err;
 }
 
-static void mark_states_dirty_locked(void)
-{
-    if (!s_states_dirty) s_states_dirty_since = esp_timer_get_time();
-    s_states_dirty = true;
-}
-
-static size_t build_states_locked(states_blob_t *b)
-{
-    memset(b, 0, sizeof(*b));
-    b->version = STATE_VERSION;
-    b->count = s_count;
-    for (int i = 0; i < s_count; i++) {
-        strlcpy(b->s[i].id, s_agents[i].cfg.id, AGENT_ID_LEN);
-        b->s[i].state = s_agents[i].state;
-    }
-    return offsetof(states_blob_t, s) + s_count * sizeof(saved_state_t);
-}
-
-static void save_states(bool force)
-{
-    static states_blob_t blob, last;
-    static size_t last_len;
-    /* never block forever: this also runs from the shutdown handler */
-    if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(200)) != pdTRUE) return;
-    bool due = s_states_dirty && (force || esp_timer_get_time() - s_states_dirty_since >= STATE_SAVE_DELAY_US);
-    size_t len = 0;
-    if (due) {
-        len = build_states_locked(&blob);
-        s_states_dirty = false;
-    }
-    UNLOCK();
-    if (!due || (len == last_len && memcmp(&blob, &last, len) == 0)) return; /* nothing new */
-    esp_err_t err = settings_save_blob(STATE_KEY, &blob, len);
-    if (err == ESP_OK) {
-        last = blob;
-        last_len = len;
-    } else {
-        ESP_LOGE(TAG, "saving states failed: %s", esp_err_to_name(err));
-    }
-}
-
-void agents_flush_states(void) { save_states(true); }
-
-static void restore_states(void)
-{
-    static states_blob_t b;
-    size_t len = sizeof(b);
-    memset(&b, 0, sizeof(b));
-    if (settings_load_blob(STATE_KEY, &b, &len) != ESP_OK || b.version != STATE_VERSION) return;
-    int64_t now = esp_timer_get_time();
-    int n = b.count > AGENT_MAX ? AGENT_MAX : b.count;
-    int restored = 0;
-    for (int k = 0; k < n; k++) {
-        b.s[k].id[AGENT_ID_LEN - 1] = 0;
-        int i = find_locked(b.s[k].id);
-        if (i < 0 || b.s[k].state >= AGENT_STATE_COUNT || b.s[k].state == AGENT_STATE_OFFLINE) continue;
-        agent_t *a = &s_agents[i];
-        a->state = b.s[k].state;
-        a->since_us = now;
-        a->last_event_us = now; /* lets the stale timeout expire it if the agent never reports */
-        a->restored = true;
-        strlcpy(a->detail, "restored", AGENT_DETAIL_LEN);
-        if (a->state == AGENT_STATE_WAITING) s_displayed = i;
-        restored++;
-    }
-    if (restored) ESP_LOGI(TAG, "restored %d agent state(s)", restored);
-}
-
-static void shutdown_handler(void) { save_states(true); }
-
 esp_err_t agents_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
@@ -234,8 +145,7 @@ esp_err_t agents_init(void)
     }
     s_displayed = s_count ? 0 : -1;
     ESP_LOGI(TAG, "loaded %d agent(s)", s_count);
-    restore_states();
-    esp_register_shutdown_handler(shutdown_handler); /* OTA / setup / rollback reboots keep the latest state */
+    settings_erase(LEGACY_STATE_KEY);
     return ESP_OK;
 }
 
@@ -342,9 +252,7 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
             s_displayed = i;
             s_manual_until_us = 0;
         }
-        mark_states_dirty_locked();
     }
-    a->restored = false;
     a->last_event_us = now;
     if (detail) strlcpy(a->detail, detail, AGENT_DETAIL_LEN);
     s_version++;
@@ -512,7 +420,6 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
     int i = find_locked(id);
     if (i >= 0 && keep) {
         s_agents[i].last_event_us = esp_timer_get_time();
-        s_agents[i].restored = false;
         s_version++;
     } else if (i >= 0) {
         /* Keep the waiting state when a tool runs only after the user answered;
@@ -560,8 +467,6 @@ void agents_tick(void)
             a->state = AGENT_STATE_OFFLINE;
             a->since_us = now;
             strlcpy(a->detail, "no events", AGENT_DETAIL_LEN);
-            a->restored = false;
-            mark_states_dirty_locked();
             s_version++;
         }
     }
@@ -579,7 +484,6 @@ void agents_tick(void)
         }
     }
     UNLOCK();
-    save_states(false);
 }
 
 agent_state_t agents_aggregate_state(const agents_snapshot_t *s)
