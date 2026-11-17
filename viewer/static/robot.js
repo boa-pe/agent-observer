@@ -427,6 +427,25 @@
   const LCD_H = 320;
   let lcdCanvas = null;
 
+  function safeText(s, maxLen) {
+    const raw = String(s || '').toUpperCase();
+    let out = '';
+    for (const ch of raw) {
+      if (FONT[ch]) out += ch;
+      else if (ch === ' ' || ch === '?' || ch === '!' || ch === '.' || ch === '-' || ch === '/') out += ch;
+    }
+    if (maxLen && out.length > maxLen) out = out.slice(0, Math.max(0, maxLen - 2)) + '..';
+    return out;
+  }
+
+  function formatAge(sec) {
+    sec = Math.max(0, sec | 0);
+    if (sec < 60) return 'FOR ' + sec + 'S';
+    if (sec < 3600) return 'FOR ' + ((sec / 60) | 0) + 'M';
+    if (sec < 86400) return 'FOR ' + ((sec / 3600) | 0) + 'H';
+    return 'FOR ' + ((sec / 86400) | 0) + 'D';
+  }
+
   function paintCard(canvas, agent, t) {
     if (!lcdCanvas) lcdCanvas = document.createElement('canvas');
     lcdCanvas.width = LCD_W;
@@ -441,39 +460,46 @@
     lctx.fillRect(0, 0, LCD_W, LCD_H);
 
     const st = agent.state || 'offline';
-    const kind = agent.kind || 'copilot';
+    const kind = agent.kind || 'other';
+    let acc = stateColor(st);
+    if (st === 'offline') acc = C.muted;
 
-    /* Portrait layout: figure above, then state + detail with bottom padding so glyphs are not clipped. */
+    /* Same portrait stack as draw_normal on the LCD: kind + name, figure, state, detail, age. */
+    const nameScale = 3;
+    const hdrH = 14 + 7 * nameScale + 8;
     const big = 3;
     const labelH = 7 * big;
-    const detailH = 7;
-    const gap = 4;
-    const padBot = 18;
-    const infoBlock = labelH + gap + detailH + padBot;
-    const figAreaH = LCD_H - infoBlock;
-    const k = Math.min(LCD_W / 120, figAreaH / 142);
+    const lineH = 7;
+    const gap = 6;
+    const infoH = labelH + gap + lineH + 12 + lineH + 10;
+    const figAreaH = LCD_H - hdrH - infoH;
+    const k = Math.min(LCD_W / 120, (figAreaH - 6) / 142);
     const cx = LCD_W / 2;
-    const top = (figAreaH - 142 * k) / 2;
+    const top = hdrH + (figAreaH - 142 * k) / 2 + 2;
+
+    const kindLabel = safeText(kind, 10);
+    if (kindLabel) drawText(lctx, 4, 4, kindLabel, 1, mix(acc, C.muted, 40));
+    const name = safeText(agent.name || agent.id || 'AGENT', 12);
+    drawTextCentered(lctx, LCD_W / 2, 14, name, nameScale, C.text);
+    lctx.fillStyle = mix(C.bgTop, acc, 140);
+    lctx.fillRect(8, hdrH - 4, LCD_W - 16, 1);
+
     drawRobot(lctx, kind, st, t, k, cx, top);
 
-    const label = stateLabel(st);
-    let lc = stateColor(st);
+    let lc = acc;
     if (st === 'waiting' && (t % 1000) >= 700) lc = mix(lc, C.bgBot, 150);
-    if (st === 'offline') lc = C.muted;
-    const infoY = figAreaH + 2;
-    drawTextCentered(lctx, LCD_W / 2, infoY, label, big, lc);
+    const infoY = hdrH + figAreaH;
+    drawTextCentered(lctx, LCD_W / 2, infoY, stateLabel(st), big, lc);
 
-    if (agent.detail) {
-      const raw = agent.detail.toUpperCase();
-      let safe = '';
-      for (const ch of raw) {
-        if (FONT[ch]) safe += ch;
-        else if (ch === ' ' || ch === '?' || ch === '!') safe += ch;
-        else if (ch === '.' || ch === '-') safe += ch;
-      }
-      if (safe.length > 22) safe = safe.slice(0, 20) + '..';
-      if (safe.trim()) drawTextCentered(lctx, LCD_W / 2, infoY + labelH + gap, safe, 1, C.text);
+    let y = infoY + labelH + gap;
+    const detail = safeText(agent.detail, 22);
+    if (detail) {
+      drawTextCentered(lctx, LCD_W / 2, y, detail, 1, C.text);
     }
+    y += 12;
+    const since = Number(agent.since);
+    const ageS = Number.isFinite(since) ? Math.max(0, ((Date.now() / 1000) - since) | 0) : 0;
+    drawTextCentered(lctx, LCD_W / 2, y, formatAge(ageS), 1, C.muted);
 
     /* Upscale to the card canvas. */
     const cssW = canvas.clientWidth || LCD_W;

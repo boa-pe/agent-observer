@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Observer — wall</title>
+<title>Agent Observer</title>
 <style>
   :root {
     --bg0: #0b1020; --bg1: #171d33; --text: #e8ecf4; --muted: #7a8496;
@@ -19,21 +19,14 @@
     padding: 20px 24px 8px;
   }
   header h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
-  header .muted { color: var(--muted); font-size: .9rem; }
   #grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px; padding: 12px 24px 40px;
+    gap: 20px; padding: 12px 24px 40px;
+    justify-items: center;
   }
   .empty {
     grid-column: 1 / -1; color: var(--muted); padding: 48px 8px; text-align: center;
-  }
-  .card {
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-  }
-  .card .name {
-    font-weight: 650; font-size: .95rem; max-width: 100%;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .card canvas {
     width: 172px; height: 320px;
@@ -41,16 +34,15 @@
     image-rendering: pixelated;
     background: #0b1020;
     box-shadow: 0 0 0 1px rgba(255,255,255,.06);
+    display: block;
   }
-  .card .meta { color: var(--muted); font-size: .75rem; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Agent wall</h1>
-  <span class="muted">Same figure and hooks as the LCD · localhost only</span>
+  <h1>Agent Observer</h1>
 </header>
-<div id="grid"><div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770 (same /api/hook/AGENT_ID?event=… URLs).</div></div>
+<div id="grid"><div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770.</div></div>
 <script src="/static/robot.js"></script>
 <script>
 let agents = [];
@@ -58,21 +50,14 @@ let lastJson = '';
 const cards = new Map(); // id -> {el, canvas, agent}
 
 function ensureCard(a) {
-  const name = a.name || a.id;
   let rec = cards.get(a.id);
   if (rec) {
     rec.agent = a;
-    rec.el.querySelector('.name').textContent = name;
-    rec.el.querySelector('.name').title = name;
-    rec.el.querySelector('.meta').textContent = a.detail || '';
     return rec;
   }
   const el = document.createElement('article');
   el.className = 'card';
-  el.innerHTML = `<div class="name"></div><canvas width="172" height="320"></canvas><div class="meta"></div>`;
-  el.querySelector('.name').textContent = name;
-  el.querySelector('.name').title = name;
-  el.querySelector('.meta').textContent = a.detail || '';
+  el.innerHTML = `<canvas width="172" height="320"></canvas>`;
   rec = { el, canvas: el.querySelector('canvas'), agent: a };
   cards.set(a.id, rec);
   return rec;
@@ -88,10 +73,14 @@ async function poll() {
     if (dump === lastJson) return;
     lastJson = dump;
     agents = list;
+    for (const a of list) {
+      const rec = cards.get(a.id);
+      if (rec) rec.agent = a;
+    }
 
     if (!agents.length) {
       cards.clear();
-      grid.innerHTML = '<div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770 (same /api/hook/AGENT_ID?event=… URLs).</div>';
+      grid.innerHTML = '<div class="empty">No agents yet. Point the usual device hooks at http://127.0.0.1:8770.</div>';
       return;
     }
 

@@ -112,6 +112,7 @@ class AgentWall:
                     "detail": "",
                     "kind": "other",
                     "last_event_at": now,
+                    "since": now,
                 }
                 self._agents[agent_id] = card
 
@@ -119,6 +120,8 @@ class AgentWall:
             if keep:
                 return True
 
+            if card["state"] != state:
+                card["since"] = now
             card["state"] = state
             if detail:
                 card["detail"] = detail[:40]
@@ -139,6 +142,8 @@ class AgentWall:
                 if card["state"] == "offline":
                     continue
                 if now - card["last_event_at"] >= limit:
+                    if card["state"] != "offline":
+                        card["since"] = now
                     card["state"] = "offline"
                     card["detail"] = "stale"
 
@@ -152,6 +157,7 @@ class AgentWall:
                     "state": c["state"],
                     "detail": c.get("detail") or "",
                     "kind": c.get("kind") or "other",
+                    "since": c.get("since") or c["last_event_at"],
                 }
                 for c in self._agents.values()
             ]
