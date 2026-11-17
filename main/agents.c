@@ -336,16 +336,20 @@ int agents_get_events(agent_event_t *out, int max)
     return n;
 }
 
-esp_err_t agents_handle_hook(const char *id, const char *event, const char *body)
+esp_err_t agents_handle_hook(const char *id, const char *event, const char *tool_q, const char *ntype_q,
+                             const char *body)
 {
     char ev[40] = "", tool[48] = "", ntype[40] = "", msg[AGENT_DETAIL_LEN] = "";
     if (event && event[0]) strlcpy(ev, event, sizeof(ev));
     else if (!json_find_str(body, "hook_event_name", ev, sizeof(ev)))
         json_find_str(body, "hookEventName", ev, sizeof(ev)); /* Grok */
-    if (!json_find_str(body, "tool_name", tool, sizeof(tool)))
+    if (tool_q && tool_q[0]) strlcpy(tool, tool_q, sizeof(tool));
+    else if (!json_find_str(body, "tool_name", tool, sizeof(tool)))
         json_find_str(body, "toolName", tool, sizeof(tool));
-    json_find_str(body, "notification_type", ntype, sizeof(ntype));
-    json_find_str(body, "message", msg, sizeof(msg));
+    if (ntype_q && ntype_q[0]) strlcpy(ntype, ntype_q, sizeof(ntype));
+    else if (!json_find_str(body, "notification_type", ntype, sizeof(ntype)))
+        json_find_str(body, "notificationType", ntype, sizeof(ntype));
+    json_find_str(body, "message", msg, sizeof(msg)); /* only sent by hooks that forward the payload */
     char sid[40] = "";
     if (!json_find_str(body, "session_id", sid, sizeof(sid)))
         json_find_str(body, "sessionId", sid, sizeof(sid));
@@ -394,9 +398,14 @@ esp_err_t agents_handle_hook(const char *id, const char *event, const char *body
     } else if (!strcasecmp(ev, "Notification")) {
         if (!strcasecmp(ntype, "idle_prompt") || strstr(msg, "waiting for your input")) {
             st = AGENT_STATE_IDLE;
+        } else if (!strcasecmp(ntype, "auth_success")) {
+            keep = true; /* informational, nothing to do for the user */
         } else {
             st = AGENT_STATE_WAITING;
-            detail = msg[0] ? msg : "needs attention";
+            if (msg[0]) detail = msg;
+            else if (!strcasecmp(ntype, "permission_prompt")) detail = "needs permission";
+            else if (!strcasecmp(ntype, "elicitation_dialog")) detail = "input needed";
+            else detail = "needs attention";
         }
     } else if (!strcasecmp(ev, "Stop") || !strcasecmp(ev, "agentStop")) { /* agentStop: Copilot CLI */
 #if CONFIG_AO_STOP_IS_WAITING

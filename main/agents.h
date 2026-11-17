@@ -59,8 +59,11 @@ esp_err_t agents_move(const char *id, int delta);
 
 /* Runtime state. */
 esp_err_t agents_set_state(const char *id, agent_state_t st, const char *detail);
-/* Map a Claude Code / Copilot hook event to a state. event may be NULL (then taken from body). */
-esp_err_t agents_handle_hook(const char *id, const char *event, const char *body);
+/* Map a Claude Code / Copilot / Grok hook event to a state. event, tool (tool name) and ntype
+ * (notification type) normally come from the URL query, so hooks need not send their payload;
+ * each one that is NULL or empty is taken from the JSON body instead (optional, may be ""). */
+esp_err_t agents_handle_hook(const char *id, const char *event, const char *tool, const char *ntype,
+                             const char *body);
 
 /* Diagnostics: the most recent hook events as received (newest first), whether or not they
  * matched an agent or changed its state. */

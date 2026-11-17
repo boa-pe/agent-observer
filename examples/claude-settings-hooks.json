@@ -1,12 +1,12 @@
 {
-  "_comment": "Claude Code. Merge the `hooks` object into ~/.claude/settings.json or <project>/.claude/settings.json. Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. All hooks are command hooks running curl via bash (Git Bash on Windows); they are silent and always exit 0. The web UI generates this for you (Connect an agent).",
+  "_comment": "Claude Code. Merge the `hooks` object into ~/.claude/settings.json or <project>/.claude/settings.json. Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. All hooks are command hooks running curl via bash (Git Bash on Windows); they are silent and always exit 0. The web UI generates this for you (Connect an agent). Hooks send only the event name, plus the tool name (tool/permission events) or the notification type (notifications), extracted locally from the hook JSON; the payload itself (prompts, tool input/output, paths, messages) is never sent.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse\" >/dev/null 2>&1 || true",
+            "command": "v=$(grep -o '\"tool_*[nN]ame\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse&tool=$v\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest\" >/dev/null 2>&1 || true",
+            "command": "v=$(grep -o '\"tool_*[nN]ame\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest&tool=$v\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=Notification\" >/dev/null 2>&1 || true",
+            "command": "v=$(grep -o '\"notification_*[tT]ype\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=Notification&ntype=$v\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -72,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=Stop\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=Stop\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]
@@ -94,7 +94,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -m 2 --connect-timeout 1 -X POST -H \"Content-Type: application/json\" -H \"Expect:\" --data-binary \"@-\" \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd\" >/dev/null 2>&1 || true",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd\" >/dev/null 2>&1 || true",
             "timeout": 5
           }
         ]

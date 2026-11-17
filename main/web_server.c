@@ -275,14 +275,19 @@ static esp_err_t h_agents_delete(httpd_req_t *req)
     return err_to_resp(req, agents_remove(id));
 }
 
-/* POST /api/hook/<id>[?event=Name]   body: raw hook JSON from Claude Code / Copilot (optional) */
+/* POST /api/hook/<id>?event=Name[&tool=ToolName][&ntype=notification_type]
+ * The generated hooks send only these fields (tool for tool / permission events, ntype for
+ * notifications) and no body, so nothing about the agent's task leaves the machine.
+ * A raw hook JSON body is still accepted (optional) for fields missing from the query. */
 static esp_err_t h_hook(httpd_req_t *req)
 {
-    char id[AGENT_ID_LEN], ev[40] = "";
+    char id[AGENT_ID_LEN], ev[40] = "", tool[48] = "", ntype[40] = "";
     if (!path_id(req->uri, "/api/hook/", id, sizeof(id))) return send_error(req, "400 Bad Request", "bad id");
     query_param(req, "event", ev, sizeof(ev));
+    query_param(req, "tool", tool, sizeof(tool));
+    query_param(req, "ntype", ntype, sizeof(ntype));
     char *body = req->content_len ? read_body(req, MAX_BODY) : NULL;
-    esp_err_t err = agents_handle_hook(id, ev, body ? body : "");
+    esp_err_t err = agents_handle_hook(id, ev, tool, ntype, body ? body : "");
     free(body);
     if (err != ESP_OK) return err_to_resp(req, err);
     /* Empty 2xx on success: hook runners treat a response body as hook output (Claude Code validates the

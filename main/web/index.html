@@ -349,22 +349,41 @@ $('setup').onclick = async () => {
 };
 
 /* ---------- hook snippets ---------- */
-/* All hooks are "command" hooks running curl. Claude Code: bash (Git Bash on Windows). VS Code / Copilot CLI:
-   two flavours, `bash` (Linux, macOS, Git Bash) and `powershell` (Windows); the host picks the one for its platform. */
+/* All hooks are "command" hooks running curl. Claude Code / Grok: bash (Git Bash on Windows). VS Code / Copilot CLI:
+   two flavours, `bash` (Linux, macOS, Git Bash) and `powershell` (Windows); the host picks the one for its platform.
+   Privacy: the hook payload (prompt, tool input/output, file paths, messages) never leaves the machine. Hooks send
+   only the event name, plus the tool name for tool/permission events and the notification type for notifications;
+   those are extracted locally, limited to [A-Za-z0-9_.:-] and 40 chars, and passed in the URL. No request body. */
 const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStop', 'SessionEnd'];
 const VSCODE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'SessionEnd'];
 const COPILOT_CLI_EVENTS = ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'postToolUse', 'permissionRequest', 'notification', 'subagentStart', 'subagentStop', 'agentStop', 'errorOccurred', 'sessionEnd'];
 const GROK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'PermissionDenied', 'Notification', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'];
 
 function hookUrl(ev) { return 'http://' + ($('hook-host').value || location.host) + '/api/hook/' + $('hook-agent').value + '?event=' + ev; }
-/* Shared curl arguments. "-H Expect:" stops curl from pausing for a 100-continue on big PostToolUse payloads;
-   "@-" (quoted, so PowerShell does not parse it) reads the hook JSON from stdin. */
-function curlArgs(ev) { return '-s -m 2 --connect-timeout 1 -X POST -H "Content-Type: application/json" -H "Expect:" --data-binary "@-" "' + hookUrl(ev) + '"'; }
-/* sh / bash / Git Bash: silent and always exit 0, so an unreachable device never blocks or warns. */
-function bashCmd(ev) { return 'curl ' + curlArgs(ev) + ' >/dev/null 2>&1 || true'; }
+/* The one payload field an event needs, if any: query parameter name and the JSON key as a grep BRE (sh) and
+   a case-insensitive .NET regex (PowerShell). Both spellings: tool_name / toolName (Copilot CLI, Grok). */
+function hookField(ev) {
+  if (/^(pretooluse|permissionrequest|permissiondenied)$/i.test(ev)) return { param:'tool', sh:'tool_*[nN]ame', ps:'tool_?name' };
+  if (/^notification$/i.test(ev)) return { param:'ntype', sh:'notification_*[tT]ype', ps:'notification_?type' };
+  return null;
+}
+const CURL_ARGS = '-s -m 2 --connect-timeout 1 -X POST';
+/* sh / bash / Git Bash: the value is read from the hook JSON on stdin (first match, safe characters only);
+   silent and always exit 0, so an unreachable device never blocks or warns. */
+function bashCmd(ev) {
+  const f = hookField(ev);
+  const curl = 'curl ' + CURL_ARGS + ' "' + hookUrl(ev) + (f ? '&' + f.param + '=$v' : '') + '" >/dev/null 2>&1 || true';
+  if (!f) return curl;
+  return 'v=$(grep -o \'"' + f.sh + '" *: *"[A-Za-z0-9_.:-]*\' | head -n 1 | sed \'s/.*"//\' | cut -c 1-40); ' + curl;
+}
 /* Windows PowerShell 5.1 and pwsh: curl.exe (plain `curl` is an alias of Invoke-WebRequest there), hook JSON via
-   $input as UTF-8, output discarded (curl.exe cannot write to /dev/null), exit 0. */
-function psCmd(ev) { return '$OutputEncoding=[Text.UTF8Encoding]::new($false); $input | curl.exe ' + curlArgs(ev) + ' | Out-Null; exit 0'; }
+   $input, output discarded (curl.exe cannot write to /dev/null), exit 0. */
+function psCmd(ev) {
+  const f = hookField(ev);
+  const curl = 'curl.exe ' + CURL_ARGS + ' "' + hookUrl(ev) + (f ? '&' + f.param + '=$v' : '') + '" | Out-Null; exit 0';
+  if (!f) return curl;
+  return '$v=\'\'; if (($input | Out-String) -match \'"' + f.ps + '"\\s*:\\s*"([A-Za-z0-9_.:-]{1,40})\') { $v=$Matches[1] }; ' + curl;
+}
 
 function renderHook() {
   let code = '', help = '';
@@ -391,14 +410,14 @@ function renderHook() {
     code = JSON.stringify({ version: 1, hooks }, null, 2);
     help = 'Save as <repo>/.github/hooks/agent-observer.json for GitHub Copilot CLI. "bash" runs on Linux/macOS, "powershell" on Windows. Both always exit 0, so an unreachable device never denies a tool call.';
   } else if (tab === 'grok') {
-    /* Grok "http" hooks POST the event JSON themselves: no shell or curl needed, same on every OS. */
+    /* command hooks, not "http": an http hook always POSTs the whole event JSON (tool input included) */
     const hooks = {};
     GROK_EVENTS.forEach(ev => {
-      hooks[ev] = [{ hooks: [{ type:'http', url: hookUrl(ev), timeout: 2 }] }];
+      hooks[ev] = [{ hooks: [{ type:'command', command: bashCmd(ev), timeout: 5 }] }];
     });
     code = JSON.stringify({ hooks }, null, 2);
     help = 'Save as ~/.grok/hooks/agent-observer.json (all sessions) or <project>/.grok/hooks/agent-observer.json (one project; trust it with /hooks-trust). ' +
-      'HTTP hooks need no curl and work the same on Windows, Linux and macOS. Grok hooks fail open, so an unreachable device never blocks a tool call. ' +
+      'Command hooks run curl through bash like the Claude Code ones (no "http" hooks: those would send the whole event, including tool input). Grok hooks fail open, so an unreachable device never blocks a tool call. ' +
       'Grok also reads .claude/settings.json: if that project already has the Claude Code hooks for another agent, Grok will report to that agent too.';
   } else {
     const base = 'http://' + ($('hook-host').value || location.host);
@@ -407,8 +426,9 @@ function renderHook() {
     code = '# set a state directly (offline | idle | working | waiting | error)\n' +
       'curl -X POST "' + base + '/api/state/' + id + '?state=working"\n' +
       'curl -X POST -H "Content-Type: application/json" -d \'{"state":"waiting","detail":"approve deploy?"}\' ' + base + '/api/state/' + id + '\n\n' +
-      '# forward any hook payload (event taken from ?event= or the JSON field hook_event_name)\n' +
-      'echo \'{"hook_event_name":"Stop"}\' | curl -X POST --data-binary @- ' + base + '/api/hook/' + id + '\n\n' +
+      '# report a hook event (tool / ntype only where they matter; no payload needed)\n' +
+      'curl -X POST "' + base + '/api/hook/' + id + '?event=PreToolUse&tool=Bash"\n' +
+      'curl -X POST "' + base + '/api/hook/' + id + '?event=Notification&ntype=permission_prompt"\n\n' +
       '# Windows PowerShell: call curl.exe (plain `curl` is an alias of Invoke-WebRequest there)\n' +
       'curl.exe -X POST "' + base + '/api/state/' + id + '?state=idle"\n\n' +
       '# list agents and their states\n' +

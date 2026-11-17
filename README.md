@@ -100,21 +100,31 @@ reached it keeps retrying with back-off (up to 30 s); use setup mode to add a ne
    (see [`examples/grok-hooks-agent-observer.json`](examples/grok-hooks-agent-observer.json)); project hooks
    must be trusted once with `/hooks-trust`.
 
-The hooks POST the event payload to `http://<device>/api/hook/<id>?event=<Event>`, which answers an empty `200`.
+The hooks send a bodyless POST to `http://<device>/api/hook/<id>?event=<Event>`, which answers an empty `200`.
+
+**Privacy:** the hook payload (prompt, tool input and output, file paths, messages, transcript path) never leaves
+the machine. Besides the event name, only two values are sent, and only for the events that need them:
+the **tool name** (`&tool=Bash`) for `PreToolUse`, `PermissionRequest` and `PermissionDenied` (to recognise question
+tools such as `AskUserQuestion` and to show what the agent is running), and the **notification type**
+(`&ntype=permission_prompt`) for `Notification`. The hook extracts them locally from the JSON on stdin
+(`grep`/`sed` in bash, `-match` in PowerShell) and keeps only `A-Z a-z 0-9 _ . : -`, at most 40 characters, so
+nothing else can slip into the URL. All other events don't read stdin at all.
+`/api/hook` still accepts a JSON body (for hooks created with older firmware and for scripts), but the generated
+configuration never sends one.
+
 The generated configuration works unchanged on Windows, Linux and macOS:
 
 - **Claude Code** uses command hooks (`"type": "command"`) that run `curl` through bash (Git Bash on Windows,
   which Claude Code needs anyway). They run silently and always exit 0, so an unreachable device never fails a hook.
 - **VS Code / Copilot CLI** hooks carry both a `bash` and a `powershell` command and the host picks the one for its
   platform. The PowerShell variant calls `curl.exe` (plain `curl` is an alias of `Invoke-WebRequest` in Windows
-  PowerShell), pipes the hook JSON via `$input`, discards the output with `Out-Null` (curl.exe cannot write to
-  `/dev/null`) and always exits 0, because a non-zero `preToolUse` hook would deny the tool call in Copilot CLI.
-  The bash variant ends in `|| true` for the same reason. Both pass `-H "Expect:"` so large `PostToolUse`
-  payloads are not delayed by curl waiting for `100-continue`.
-- **Grok** uses HTTP hooks (`"type": "http"`): Grok POSTs the event JSON to the device itself, so no shell or
-  `curl` is involved. Grok hooks fail open (timeouts and errors never block a tool call). Grok also reads
-  `.claude/settings.json`, so a project that already has Claude Code hooks for another agent reports to that
-  agent from Grok sessions as well.
+  PowerShell), reads the hook JSON via `$input` where it needs the tool name or notification type, discards the
+  output with `Out-Null` (curl.exe cannot write to `/dev/null`) and always exits 0, because a non-zero `preToolUse`
+  hook would deny the tool call in Copilot CLI. The bash variant ends in `|| true` for the same reason.
+- **Grok** uses the same bash command hooks as Claude Code. Grok's HTTP hooks (`"type": "http"`) are not used,
+  because they always POST the whole event JSON, tool input included. Grok hooks fail open (timeouts and errors
+  never block a tool call). Grok also reads `.claude/settings.json`, so a project that already has Claude Code hooks
+  for another agent reports to that agent from Grok sessions as well.
 
 Event mapping:
 

@@ -1,13 +1,13 @@
 {
-  "_comment": "Grok. Save as ~/.grok/hooks/agent-observer.json (all sessions) or <project>/.grok/hooks/agent-observer.json (one project; run /hooks-trust). Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. HTTP hooks POST the event JSON directly (no curl, same on every OS) and fail open, so an unreachable device never blocks a tool call. The web UI generates this for you (Connect an agent).",
+  "_comment": "Grok. Save as ~/.grok/hooks/agent-observer.json (all sessions) or <project>/.grok/hooks/agent-observer.json (one project; run /hooks-trust). Replace AGENT_ID with the id configured in the web UI and the host with your device IP or agent-observer.local. Command hooks running curl via bash like the Claude Code ones (not \"http\" hooks: those POST the whole event, tool input included); Grok hooks fail open, so an unreachable device never blocks a tool call. The web UI generates this for you (Connect an agent). Hooks send only the event name, plus the tool name (tool/permission events) or the notification type (notifications), extracted locally from the hook JSON; the payload itself (prompts, tool input/output, paths, messages) is never sent.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionStart\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -16,9 +16,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=UserPromptSubmit\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -27,9 +27,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse",
-            "timeout": 2
+            "type": "command",
+            "command": "v=$(grep -o '\"tool_*[nN]ame\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PreToolUse&tool=$v\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -38,9 +38,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUse\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -49,9 +49,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUseFailure",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PostToolUseFailure\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -60,9 +60,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest",
-            "timeout": 2
+            "type": "command",
+            "command": "v=$(grep -o '\"tool_*[nN]ame\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionRequest&tool=$v\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -71,9 +71,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=PermissionDenied",
-            "timeout": 2
+            "type": "command",
+            "command": "v=$(grep -o '\"tool_*[nN]ame\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=PermissionDenied&tool=$v\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -82,9 +82,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Notification",
-            "timeout": 2
+            "type": "command",
+            "command": "v=$(grep -o '\"notification_*[tT]ype\" *: *\"[A-Za-z0-9_.:-]*' | head -n 1 | sed 's/.*\"//' | cut -c 1-40); curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=Notification&ntype=$v\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -93,9 +93,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStart",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStart\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -104,9 +104,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SubagentStop\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -115,9 +115,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=Stop",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=Stop\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -126,9 +126,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=StopFailure",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=StopFailure\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
@@ -137,9 +137,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd",
-            "timeout": 2
+            "type": "command",
+            "command": "curl -s -m 2 --connect-timeout 1 -X POST \"http://agent-observer.local/api/hook/AGENT_ID?event=SessionEnd\" >/dev/null 2>&1 || true",
+            "timeout": 5
           }
         ]
       }
