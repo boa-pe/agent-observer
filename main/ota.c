@@ -40,6 +40,8 @@ static const char *TAG = "ota";
 #define CONFIRM_STABLE_S    30          /* new image must run this long with Wi-Fi up before it is kept */
 #define CONFIG_CHECK_DELAY_S 5          /* after the configuration was changed */
 #define ERROR_RETRY_S       (30 * 60)
+#define BOOT_RETRY_S        60          /* a failed startup check is repeated after this long... */
+#define BOOT_RETRIES        2           /* ...at most this many times (DNS / TLS often fail right after Wi-Fi comes up) */
 #define API_BODY_CAP        (40 * 1024) /* GitHub lists assets before the (long) release notes */
 #define MANIFEST_CAP        2048
 #define HTTP_RX_BUF         4096        /* GitHub asset redirects carry very long Location headers */
@@ -555,6 +557,8 @@ static void ota_task(void *arg)
     int64_t conn_since = 0;
     bool confirmed = !running_pending_verify();
     bool boot_checked = false; /* the once-per-boot check (independent of the periodic schedule) ran */
+    int boot_retries = BOOT_RETRIES;
+    int64_t boot_retry_at = 0;  /* failed startup check: repeat it at this time (0 = no retry pending) */
     for (;;) {
         uint32_t req = 0;
         xTaskNotifyWait(0, UINT32_MAX, &req, pdMS_TO_TICKS(5000));
@@ -600,6 +604,9 @@ static void ota_task(void *arg)
         if (!boot_checked && conn && confirmed) {
             boot_checked = true;
             boot_check = cfg.url[0] != 0;
+        } else if (boot_retry_at && conn && now >= boot_retry_at) {
+            boot_retry_at = 0;
+            boot_check = cfg.url[0] != 0;
         }
 
         LOCK();
@@ -612,14 +619,23 @@ static void ota_task(void *arg)
             if (due) schedule_in(FIRST_CHECK_DELAY_S);
             continue;
         }
-        if (boot_check) ESP_LOGI(TAG, "startup update check");
+        if (boot_check) {
+            ESP_LOGI(TAG, "startup update check%s", boot_retries < BOOT_RETRIES ? " (retry)" : "");
+        }
         /* the boot check installs automatically unless auto-update is switched off (then it only reports) */
         do_check((req & REQ_INSTALL) || due || (boot_check && cfg.auto_update),
                  (req & (REQ_CHECK | REQ_INSTALL)) != 0);
+        LOCK();
+        bool failed = s_st.state == OTA_ERROR;
+        UNLOCK();
+        if (!failed) {
+            boot_retry_at = 0;  /* any successful check makes a pending startup retry unnecessary */
+        } else if (boot_check && boot_retries > 0) {
+            boot_retries--;
+            boot_retry_at = esp_timer_get_time() + BOOT_RETRY_S * 1000000LL;
+            ESP_LOGW(TAG, "startup update check failed, retrying in %d s", BOOT_RETRY_S);
+        }
         if (periodic) {
-            LOCK();
-            bool failed = s_st.state == OTA_ERROR;
-            UNLOCK();
             int64_t interval = (int64_t)cfg.interval_h * 3600;
             schedule_in(failed && interval > ERROR_RETRY_S ? ERROR_RETRY_S : interval);
         } else {

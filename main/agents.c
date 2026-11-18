@@ -251,6 +251,12 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
             /* An agent needing attention always grabs the display. */
             s_displayed = i;
             s_manual_until_us = 0;
+        } else if (st != AGENT_STATE_OFFLINE && power_in_standby() &&
+                   (s_displayed < 0 || s_agents[s_displayed].state == AGENT_STATE_OFFLINE)) {
+            /* This event wakes the display: show the agent that caused it. The display check keeps
+             * the first one if several agents report before the standby flag is cleared. */
+            s_displayed = i;
+            s_manual_until_us = 0;
         }
     }
     a->last_event_us = now;
