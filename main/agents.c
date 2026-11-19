@@ -110,6 +110,39 @@ static int find_locked(const char *id)
     return -1;
 }
 
+/* Show the most urgent online agent (waiting > error > working > idle). Called when an agent goes
+ * offline or comes online. Ties: the displayed agent stays, then `prefer` (the agent that just came
+ * online, -1 = none), then the next one in list order after the displayed one. When all agents are
+ * offline the selection is left alone. */
+static void select_most_urgent_locked(int prefer)
+{
+    static const int prio[AGENT_STATE_COUNT] = {
+        [AGENT_STATE_OFFLINE] = 0, [AGENT_STATE_IDLE] = 1, [AGENT_STATE_WORKING] = 2,
+        [AGENT_STATE_ERROR] = 3, [AGENT_STATE_WAITING] = 4,
+    };
+    const int cur = s_displayed;
+    int best = -1, best_prio = 0;
+    if (cur >= 0 && prio[s_agents[cur].state] > best_prio) {
+        best = cur;
+        best_prio = prio[s_agents[cur].state];
+    }
+    if (prefer >= 0 && prio[s_agents[prefer].state] > best_prio) {
+        best = prefer;
+        best_prio = prio[s_agents[prefer].state];
+    }
+    const int start = cur < 0 ? 0 : cur;
+    for (int k = 1; k <= s_count; k++) {
+        int j = (start + k) % s_count;
+        if (prio[s_agents[j].state] > best_prio) {
+            best = j;
+            best_prio = prio[s_agents[j].state];
+        }
+    }
+    if (best < 0 || best == cur) return;
+    ESP_LOGI(TAG, "showing %s (%s)", s_agents[best].cfg.id, agent_state_name(s_agents[best].state));
+    s_displayed = best;
+}
+
 static esp_err_t persist_locked(void)
 {
     static agents_blob_t blob; /* static: keep it off the httpd stack */
@@ -245,18 +278,23 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
     int64_t now = esp_timer_get_time();
     if (a->state != st) {
         ESP_LOGI(TAG, "%s: %s -> %s", a->cfg.id, agent_state_name(a->state), agent_state_name(st));
+        const bool came_online = a->state == AGENT_STATE_OFFLINE;
         a->state = st;
         a->since_us = now;
         if (st == AGENT_STATE_WAITING) {
             /* An agent needing attention always grabs the display. */
             s_displayed = i;
             s_manual_until_us = 0;
-        } else if (st != AGENT_STATE_OFFLINE && power_in_standby() &&
-                   (s_displayed < 0 || s_agents[s_displayed].state == AGENT_STATE_OFFLINE)) {
-            /* This event wakes the display: show the agent that caused it. The display check keeps
-             * the first one if several agents report before the standby flag is cleared. */
-            s_displayed = i;
-            s_manual_until_us = 0;
+        } else if (st == AGENT_STATE_OFFLINE) {
+            /* the agent on screen left: show the most urgent remaining one right away */
+            if (i == s_displayed) {
+                select_most_urgent_locked(-1);
+                s_manual_until_us = 0;
+            }
+        } else if (came_online && now >= s_manual_until_us) {
+            /* an agent came online (this also covers waking from standby, when all others are
+             * offline): re-select, unless the user just picked an agent with the button */
+            select_most_urgent_locked(i);
         }
     }
     a->last_event_us = now;
@@ -482,6 +520,10 @@ void agents_tick(void)
             a->state = AGENT_STATE_OFFLINE;
             a->since_us = now;
             strlcpy(a->detail, "no events", AGENT_DETAIL_LEN);
+            if (i == s_displayed) {
+                select_most_urgent_locked(-1);
+                s_manual_until_us = 0;
+            }
             s_version++;
         }
     }
