@@ -459,7 +459,10 @@ static bool fetch_image(const release_t *rel, bool install, bool manual, const e
 
     ESP_LOGI(TAG, "installing %s (image %s) from %s", rel_id, nd.version, rel->url);
     set_status(OTA_DOWNLOADING, 0, "Downloading %s", rel_id);
-    ui_set_message("Updating", "Downloading firmware...");
+    char m[48];
+    snprintf(m, sizeof(m), "Downloading %.32s", nd.version);
+    ui_set_message("Updating", m);
+    ui_set_progress(0);
     int last_pct = -1;
     while ((e = esp_https_ota_perform(h)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
         int total = esp_https_ota_get_image_size(h);
@@ -468,11 +471,7 @@ static bool fetch_image(const release_t *rel, bool install, bool manual, const e
         if (pct != last_pct) {
             last_pct = pct;
             set_status(OTA_DOWNLOADING, pct, "Downloading %s: %d%%", rel_id, pct);
-            if (pct % 5 == 0) {
-                char m[32];
-                snprintf(m, sizeof(m), "Downloading %d%%", pct);
-                ui_set_message("Updating", m);
-            }
+            ui_set_progress(pct);
         }
     }
     if (e != ESP_OK || !esp_https_ota_is_complete_data_received(h)) {
@@ -491,7 +490,6 @@ static bool fetch_image(const release_t *rel, bool install, bool manual, const e
     remember_installed(rel_id, nd.version);
     if (s_bad[0]) set_bad(""); /* explicit retry; a renewed failure is recorded again at boot */
     set_status(OTA_REBOOTING, 100, "Installed %s, rebooting", rel_id);
-    char m[48];
     snprintf(m, sizeof(m), "Rebooting into %.32s", nd.version);
     ui_set_message("Updated!", m);
     return true;

@@ -33,6 +33,7 @@
 static volatile ui_mode_t s_mode = UI_MODE_BOOT;
 static volatile int s_boot_window_pct, s_boot_hold_pct;
 static char s_msg_title[32], s_msg_body[96];
+static volatile int s_msg_progress = -1; /* message screen progress bar, -1 = none */
 static agents_snapshot_t s_snap; /* refreshed once per frame */
 static char s_ip[20];
 static bool s_connected;
@@ -58,8 +59,14 @@ void ui_set_message(const char *title, const char *body)
 {
     strlcpy(s_msg_title, title, sizeof(s_msg_title));
     strlcpy(s_msg_body, body, sizeof(s_msg_body));
+    s_msg_progress = -1;
     s_mode = UI_MODE_MESSAGE;
     ui_wake(); /* messages are shown even in standby */
+}
+
+void ui_set_progress(int pct)
+{
+    s_msg_progress = pct < 0 ? -1 : pct > 100 ? 100 : pct;
 }
 
 static color_t state_color(agent_state_t s)
@@ -662,7 +669,15 @@ static void draw_message(uint32_t t)
     draw_background();
     int y = DISP_H / 3;
     y = text_wrapped(DISP_W / 2, y, DISP_W - 8, s_msg_title, DISP_W >= 160 ? 2 : 1, C_TEXT);
-    text_wrapped(DISP_W / 2, y + 8, DISP_W - 8, s_msg_body, 1, C_MUTED);
+    y = text_wrapped(DISP_W / 2, y + 8, DISP_W - 8, s_msg_body, 1, C_MUTED);
+    const int pct = s_msg_progress;
+    if (pct >= 0) {
+        /* same style as the boot screen bar */
+        const int bw = DISP_W - 24, bh = 10, by = y + 14;
+        gfx_fill_round_rect(12, by, bw, bh, bh / 2, gfx_mix(C_BG_BOT, C_WHITE, 30));
+        int fw = bw * pct / 100;
+        if (pct > 0) gfx_fill_round_rect(12, by, fw < bh ? bh : fw, bh, bh / 2, state_color(AGENT_STATE_IDLE));
+    }
 }
 
 static void ui_task(void *arg)

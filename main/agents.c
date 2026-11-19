@@ -110,10 +110,9 @@ static int find_locked(const char *id)
     return -1;
 }
 
-/* Show the most urgent online agent (waiting > error > working > idle). Called when an agent goes
- * offline or comes online. Ties: the displayed agent stays, then `prefer` (the agent that just came
- * online, -1 = none), then the next one in list order after the displayed one. When all agents are
- * offline the selection is left alone. */
+/* Show the most urgent online agent (waiting > error > working > idle). Ties: the displayed agent
+ * stays, then `prefer` (the agent whose state just changed, -1 = none), then the next one in list
+ * order after the displayed one. When all agents are offline the selection is left alone. */
 static void select_most_urgent_locked(int prefer)
 {
     static const int prio[AGENT_STATE_COUNT] = {
@@ -515,25 +514,14 @@ void agents_tick(void)
             a->state = AGENT_STATE_OFFLINE;
             a->since_us = now;
             strlcpy(a->detail, "no events", AGENT_DETAIL_LEN);
-            if (i == s_displayed) {
-                select_most_urgent_locked(-1);
-                s_manual_until_us = 0;
-            }
             s_version++;
+            auto_select_locked(i);
         }
     }
-    /* Auto-focus: if anything waits for the user, show it (unless the user just pressed the button). */
-    if (s_count > 0 && now >= s_manual_until_us &&
-        (s_displayed < 0 || s_agents[s_displayed].state != AGENT_STATE_WAITING)) {
-        int start = s_displayed < 0 ? 0 : s_displayed;
-        for (int k = 1; k <= s_count; k++) {
-            int i = (start + k) % s_count;
-            if (s_agents[i].state == AGENT_STATE_WAITING) {
-                s_displayed = i;
-                s_version++;
-                break;
-            }
-        }
+    /* the button selection has been held long enough: back to automatic selection */
+    if (s_manual_until_us && now >= s_manual_until_us) {
+        ESP_LOGI(TAG, "manual selection expired, automatic selection");
+        auto_select_locked(-1);
     }
     UNLOCK();
 }
