@@ -110,6 +110,27 @@ static int find_locked(const char *id)
     return -1;
 }
 
+/* The displayed agent i just went offline: switch to the most urgent other agent that is online
+ * (waiting > error > working > idle), searching from i onwards so ties go to the next one in list
+ * order. Keeps the selection when all other agents are offline. */
+static void focus_busy_locked(int i)
+{
+    if (i != s_displayed) return;
+    static const int prio[AGENT_STATE_COUNT] = {
+        [AGENT_STATE_OFFLINE] = 0, [AGENT_STATE_IDLE] = 1, [AGENT_STATE_WORKING] = 2,
+        [AGENT_STATE_ERROR] = 3, [AGENT_STATE_WAITING] = 4,
+    };
+    int best = -1;
+    for (int k = 1; k < s_count; k++) {
+        int j = (i + k) % s_count;
+        if (prio[s_agents[j].state] > (best < 0 ? 0 : prio[s_agents[best].state])) best = j;
+    }
+    if (best < 0) return;
+    ESP_LOGI(TAG, "%s went offline, showing %s", s_agents[i].cfg.id, s_agents[best].cfg.id);
+    s_displayed = best;
+    s_manual_until_us = 0;
+}
+
 static esp_err_t persist_locked(void)
 {
     static agents_blob_t blob; /* static: keep it off the httpd stack */
@@ -257,6 +278,8 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
              * the first one if several agents report before the standby flag is cleared. */
             s_displayed = i;
             s_manual_until_us = 0;
+        } else if (st == AGENT_STATE_OFFLINE) {
+            focus_busy_locked(i);
         }
     }
     a->last_event_us = now;
@@ -482,6 +505,7 @@ void agents_tick(void)
             a->state = AGENT_STATE_OFFLINE;
             a->since_us = now;
             strlcpy(a->detail, "no events", AGENT_DETAIL_LEN);
+            focus_busy_locked(i);
             s_version++;
         }
     }

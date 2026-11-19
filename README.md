@@ -18,7 +18,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   (menuconfig can switch it to the most urgent state across *all* agents).
 - **User button**: short press cycles through agents; long press (6 s) enters Wi-Fi setup.
 - **Auto-focus**: an agent that starts waiting for the user is put on screen immediately
-  (a manual button selection is respected for 15 s).
+  (a manual button selection is respected for 15 s). When the agent on screen goes offline, the display switches to
+  the most urgent other agent that is online (waiting > error > working > idle), if there is one.
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
