@@ -86,7 +86,7 @@ uint8_t agents_get_offline_timeout(void);
 
 /* Button: show next agent. */
 void agents_cycle(void);
-/* Periodic housekeeping (stale timeout, auto-focus on waiting agents). */
+/* Periodic housekeeping (stale timeout, automatic selection once a button selection expires). */
 void agents_tick(void);
 
 const char *agent_state_name(agent_state_t st);

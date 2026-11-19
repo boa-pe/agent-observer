@@ -17,10 +17,10 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   The LED follows the agent on screen, including when you cycle agents with the button
   (menuconfig can switch it to the most urgent state across *all* agents).
 - **User button**: short press cycles through agents; long press (6 s) enters Wi-Fi setup.
-- **Auto-focus**: an agent that starts waiting for the user is put on screen immediately
-  (a manual button selection is respected for 15 s). When the agent on screen goes offline or another agent comes
-  online, the display shows the most urgent online agent (waiting > error > working > idle); on a tie the agent on
-  screen stays, then the one that just came online wins.
+- **Automatic selection**: the display shows the most urgent online agent (waiting > error > working > idle).
+  It is re-evaluated whenever any agent changes state (including going offline) and when a button selection
+  expires; on a tie the agent on screen stays, then the one whose state just changed wins. An agent picked with
+  the button stays on screen for 15 s, then automatic selection takes over again.
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
@@ -165,7 +165,7 @@ Event mapping:
 | `ErrorOccurred`, `StopFailure` | error |
 | `SessionEnd` | offline |
 
-Agents with no events for 2 h are marked offline. The timeout (0-240 min, 0 = never) is set in the web UI
+Agents with no events for 30 min are marked offline (which also triggers automatic selection). The timeout (0-240 min, 0 = never) is set in the web UI
 (*Monitored agents* card, *Offline after*) and kept across reboots.
 
 Agent states are not saved: after a reboot every agent shows as offline until it sends its next

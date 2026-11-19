@@ -141,6 +141,16 @@ static void select_most_urgent_locked(int prefer)
     if (best < 0 || best == cur) return;
     ESP_LOGI(TAG, "showing %s (%s)", s_agents[best].cfg.id, agent_state_name(s_agents[best].state));
     s_displayed = best;
+    s_version++;
+}
+
+/* Automatic selection, triggered by every state change (`changed` = that agent) and when the manual
+ * selection expires (-1). Does nothing while a button selection is still being held. */
+static void auto_select_locked(int changed)
+{
+    if (esp_timer_get_time() < s_manual_until_us) return;
+    s_manual_until_us = 0;
+    select_most_urgent_locked(changed);
 }
 
 static esp_err_t persist_locked(void)
@@ -278,24 +288,9 @@ static void set_state_locked(int i, agent_state_t st, const char *detail)
     int64_t now = esp_timer_get_time();
     if (a->state != st) {
         ESP_LOGI(TAG, "%s: %s -> %s", a->cfg.id, agent_state_name(a->state), agent_state_name(st));
-        const bool came_online = a->state == AGENT_STATE_OFFLINE;
         a->state = st;
         a->since_us = now;
-        if (st == AGENT_STATE_WAITING) {
-            /* An agent needing attention always grabs the display. */
-            s_displayed = i;
-            s_manual_until_us = 0;
-        } else if (st == AGENT_STATE_OFFLINE) {
-            /* the agent on screen left: show the most urgent remaining one right away */
-            if (i == s_displayed) {
-                select_most_urgent_locked(-1);
-                s_manual_until_us = 0;
-            }
-        } else if (came_online && now >= s_manual_until_us) {
-            /* an agent came online (this also covers waking from standby, when all others are
-             * offline): re-select, unless the user just picked an agent with the button */
-            select_most_urgent_locked(i);
-        }
+        auto_select_locked(i);
     }
     a->last_event_us = now;
     if (detail) strlcpy(a->detail, detail, AGENT_DETAIL_LEN);

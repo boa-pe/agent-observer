@@ -164,12 +164,12 @@ menu "Agent Observer"
         config AO_STALE_TIMEOUT_MIN
             int "Default: mark agent offline after this many minutes without events (0 = never)"
             range 0 240
-            default 120
+            default 30
             help
                 Initial value only; the timeout can be changed at runtime from the web UI
                 (stored in NVS).
         config AO_MANUAL_OVERRIDE_S
-            int "After a button press, wait this long before auto-switching to a waiting agent (s)"
+            int "Keep an agent selected with the button this long before automatic selection resumes (s)"
             default 15
         config AO_STOP_IS_WAITING
             bool "Treat 'agent finished its turn' (Stop) as waiting for user instead of idle"
