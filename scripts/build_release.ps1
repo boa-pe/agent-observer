@@ -124,3 +124,32 @@ $Instructions += @(
 $Instructions | Set-Content -LiteralPath (Join-Path $OutputPath 'flash-addresses.txt') -Encoding UTF8
 
 Write-Host "ESP Web Tool files are ready in: $OutputPath"
+
+$VersionPath = Join-Path $ProjectRoot 'version.txt'
+if (-not (Test-Path $VersionPath)) {
+    throw "Version file not found: $VersionPath"
+}
+$Version = (Get-Content -LiteralPath $VersionPath -Raw).Trim()
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Invalid version '$Version' in $VersionPath (expected x.y.z)"
+}
+
+$ReleasePath = Join-Path $ProjectRoot "release_$Version"
+New-Item -ItemType Directory -Force -Path $ReleasePath | Out-Null
+
+$ZipPath = Join-Path $ReleasePath "agent-observer-webflasher-esp32c6-lcd147_$Version.zip"
+if (Test-Path $ZipPath) {
+    Remove-Item -LiteralPath $ZipPath -Force
+}
+Compress-Archive -Path (Join-Path $OutputPath '*') -DestinationPath $ZipPath
+
+$AppBinarySource = Join-Path $BuildDirectory 'agent_observer.bin'
+if (-not (Test-Path $AppBinarySource)) {
+    throw "Application binary was not generated: $AppBinarySource"
+}
+$FotaBinaryPath = Join-Path $ReleasePath "agent-observer-fota-esp32c6-lcd147_$Version.bin"
+Copy-Item -LiteralPath $AppBinarySource -Destination $FotaBinaryPath -Force
+
+Write-Host "Release $Version files are ready in: $ReleasePath"
+Write-Host "  $(Split-Path $ZipPath -Leaf)"
+Write-Host "  $(Split-Path $FotaBinaryPath -Leaf)"

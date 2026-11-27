@@ -1,4 +1,5 @@
 build/
+release_*/
 managed_components/
 dependencies.lock
 sdkconfig
