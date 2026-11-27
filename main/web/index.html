@@ -59,6 +59,13 @@
   .slider input[type=range] { width:100%; padding:0; background:none; border:0; accent-color:var(--waiting); }
   .slider label { min-width:6em; }
   .slider output { min-width:3.5em; text-align:right; font-variant-numeric:tabular-nums; }
+  fieldset.ed { border:0; margin:0; padding:0; min-width:0; }
+  fieldset.ed:disabled { opacity:.6; }
+  .hdr-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .mode { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 8px; border-radius:6px;
+          border:1px solid var(--line); color:var(--muted); }
+  .mode.edit { background:var(--waiting); color:#1b1400; border-color:var(--waiting); }
+  .notice { border-color:#3a4766; color:var(--muted); font-size:14px; }
 </style>
 </head>
 <body>
@@ -68,17 +75,26 @@
       <h1>Agent Observer</h1>
       <div class="muted" id="dev">&nbsp;</div>
     </div>
-    <button id="setup">Wi-Fi setup...</button>
+    <div class="hdr-actions">
+      <span class="mode" id="mode">Read-only</span>
+      <button id="setup" hidden>Wi-Fi setup...</button>
+      <button id="logout" hidden>Log out</button>
+    </div>
   </header>
+
+  <div class="card notice" id="ro-note">Read-only mode. To change settings, hold the button on the device for
+    <span id="hold-s">5</span> s. Editing ends when you log out or after <span id="idle-min">10</span> minutes without activity here.</div>
 
   <section class="card">
     <h2>Monitored agents</h2>
     <div id="agents"><div class="empty">Loading...</div></div>
+    <fieldset class="ed" disabled>
     <div class="slider" style="grid-template-columns:auto auto 1fr; border-top:1px solid var(--line); padding-top:12px">
       <label for="off-min">Offline after</label>
       <input type="number" id="off-min" min="0" max="240" step="1" style="width:5.5em" disabled>
       <span class="muted">minutes without any event from an agent, it is marked offline (0 = never).</span>
     </div>
+    </fieldset>
     <div class="err" id="off-err"></div>
     <details id="ev" style="margin-top:12px">
       <summary class="muted" style="cursor:pointer">Recent hook events (diagnostics)</summary>
@@ -87,7 +103,7 @@
     </details>
   </section>
 
-  <section class="card">
+  <section class="card" id="add-card" hidden>
     <h2>Add agent</h2>
     <form class="add" id="add">
       <div><label for="a-name">Display name</label><input id="a-name" maxlength="31" required placeholder="Backend refactor"></div>
@@ -120,6 +136,7 @@
   <section class="card">
     <h2>Wi-Fi networks</h2>
     <div class="muted">Up to 5 networks. The device joins the preferred one when it is in range, otherwise the strongest saved network; changes apply without a restart.</div>
+    <fieldset class="ed" disabled>
     <div id="wifis" style="margin-top:8px"></div>
     <form class="add" id="wifi-add" style="margin-top:12px; grid-template-columns:1.2fr 1.2fr auto auto">
       <div><label for="w-ssid">Network name (SSID)</label><input id="w-ssid" maxlength="32" required autocomplete="off"></div>
@@ -127,6 +144,7 @@
       <div><label class="check" style="display:flex;gap:6px;align-items:center;margin-bottom:10px"><input type="checkbox" id="w-pref" style="width:auto"> Preferred</label></div>
       <div><button class="primary" type="submit">Save</button></div>
     </form>
+    </fieldset>
     <div class="err" id="w-err"></div>
   </section>
 
@@ -134,17 +152,20 @@
     <h2>Network</h2>
     <div class="muted">Give each monitor its own name to run several in one network. Agent status is always accepted on port 80;
       another port adds a listener for hooks only. The hook templates above use both. Saving restarts the device.</div>
+    <fieldset class="ed" disabled>
     <form class="add" id="net" style="margin-top:12px; grid-template-columns:1.6fr 1fr auto">
       <div><label for="n-host">mDNS name (&lt;name&gt;.local)</label><input id="n-host" maxlength="31" required pattern="[a-z0-9]([a-z0-9\-]{0,29}[a-z0-9])?" autocomplete="off" disabled></div>
       <div><label for="n-port">Agent status port</label><input id="n-port" type="number" min="1" max="65535" step="1" required disabled></div>
       <div><button class="primary" type="submit" id="n-save" disabled>Save &amp; restart</button></div>
     </form>
+    </fieldset>
     <div class="err" id="n-err"></div>
   </section>
 
   <section class="card" id="display-card">
     <h2>Display</h2>
     <div class="muted">Backlight intensity. The level is applied while you drag and stored on the device when you release the slider.</div>
+    <fieldset class="ed" disabled>
     <div class="slider">
       <label for="bl">Brightness</label>
       <input type="range" id="bl" min="5" max="100" step="1" value="100" disabled>
@@ -170,6 +191,7 @@
       <select id="rot" style="width:auto"><option value="0">0°</option><option value="180">180°</option></select>
       <span class="muted">turns the picture upside down, e.g. for mounting the device the other way round.</span>
     </div>
+    </fieldset>
     <div class="err" id="bl-err"></div>
   </section>
 
@@ -177,6 +199,7 @@
     <h2>Firmware update</h2>
     <div class="muted" id="ota-cur">&nbsp;</div>
     <div class="muted" id="ota-slots" style="margin-top:4px">&nbsp;</div>
+    <fieldset class="ed" disabled>
     <form class="ota" id="ota" style="margin-top:12px">
       <div class="wide">
         <label for="o-url">Update source</label>
@@ -203,6 +226,7 @@
         <button type="button" class="danger" id="o-rollback" hidden>Roll back</button>
       </div>
     </form>
+    </fieldset>
     <div style="margin-top:12px"><span class="ota-state" id="o-state"></span> <span class="muted" id="o-msg"></span></div>
     <div class="bar" id="o-bar" hidden><div id="o-prog"></div></div>
     <div class="err" id="o-err"></div>
@@ -230,9 +254,36 @@ let agents = [], status = {}, tab = 'claude', editing = null;
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 403 && j.read_only) setEdit(false); /* edit mode ended on the device */
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
+
+/* ---------- read-only / edit mode ----------
+   The page is read-only until the device button is held (the device reports it in GET /api/agents).
+   User activity here keeps edit mode alive; plain polling does not. */
+let editMode = null, lastPing = 0;
+function setEdit(on) {
+  on = !!on;
+  if (on === editMode) return;
+  editMode = on;
+  document.querySelectorAll('fieldset.ed').forEach(f => f.disabled = !on);
+  $('add-card').hidden = $('setup').hidden = $('logout').hidden = !on;
+  $('ro-note').hidden = on;
+  $('mode').textContent = on ? 'Editing' : 'Read-only';
+  $('mode').classList.toggle('edit', on);
+  if (!on && $('edit').open) $('edit').close('cancel');
+  if (on) lastPing = Date.now();
+  render();
+}
+['pointerdown', 'keydown', 'input'].forEach(t => document.addEventListener(t, () => {
+  if (!editMode || Date.now() - lastPing < 30000) return;
+  lastPing = Date.now();
+  api('POST', '/api/session/ping').then(s => setEdit(s.edit)).catch(() => {});
+}, true));
+$('logout').onclick = async () => {
+  try { setEdit((await api('POST', '/api/session/logout')).edit); } catch (e) { alert(e.message); }
+};
 
 function ago(s) {
   if (s < 0) return 'never';
@@ -252,7 +303,7 @@ function render() {
   const box = $('agents');
   box.innerHTML = '';
   if (!agents.length) {
-    box.append(el('div', { className:'empty', textContent:'No agents yet. Add one below, then connect it with a hook.' }));
+    box.append(el('div', { className:'empty', textContent: editMode ? 'No agents yet. Add one below, then connect it with a hook.' : 'No agents yet. Enable editing to add one.' }));
   }
   agents.forEach((a, i) => {
     const dot = el('div', { className:'dot ' + a.state, style:'background:var(--' + a.state + ')' });
@@ -267,7 +318,8 @@ function render() {
     const ed = el('button', { textContent:'Edit', onclick: () => openEdit(a) });
     const hk = el('button', { textContent:'Hooks', onclick: () => { $('hook-agent').value = a.id; renderHook(); $('hook-code').scrollIntoView({ behavior:'smooth', block:'center' }); } });
     const del = el('button', { className:'danger', textContent:'Delete', onclick: () => { if (confirm('Delete "' + a.name + '"?')) act(() => api('DELETE', '/api/agents/' + a.id)); } });
-    box.append(el('div', { className:'agent' }, dot, el('div', {}, name, meta), el('div', { className:'actions' }, up, dn, ed, hk, del)));
+    const actions = editMode ? [up, dn, ed, hk, del] : [hk];
+    box.append(el('div', { className:'agent' }, dot, el('div', {}, name, meta), el('div', { className:'actions' }, ...actions)));
   });
 
   const sel = $('hook-agent'), cur = sel.value;
@@ -299,7 +351,7 @@ async function refresh() {
   try {
     const j = await api('GET', '/api/agents');
     agents = j.agents;
-    render();
+    if ('edit' in j && !!j.edit !== editMode) setEdit(j.edit); else render();
     if ('offline_timeout_min' in j && document.activeElement !== $('off-min')) {
       $('off-min').value = j.offline_timeout_min;
       $('off-min').disabled = false;
@@ -669,6 +721,7 @@ async function loadEvents() {
 $('ev').addEventListener('toggle', loadEvents);
 setInterval(loadEvents, 2000);
 
+api('GET', '/api/session').then(s => { $('hold-s').textContent = s.hold_s; $('idle-min').textContent = s.timeout_min; }).catch(() => {});
 refresh().then(loadStatus).then(loadOta).then(loadWifi).then(loadDisplay);
 setInterval(loadWifi, 30000);
 setInterval(loadDisplay, 30000);

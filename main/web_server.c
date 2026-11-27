@@ -133,6 +133,93 @@ static bool query_param(httpd_req_t *req, const char *key, char *out, size_t len
     return true;
 }
 
+/* ---------- edit mode ---------- */
+
+#define EDIT_TIMEOUT_US ((int64_t)CONFIG_AO_EDIT_TIMEOUT_MIN * 60 * 1000000)
+
+static portMUX_TYPE s_edit_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_edit_until_us; /* 0 = read-only; written by the button task and httpd */
+
+/* Microseconds of edit mode left (0 = read-only). touch=true counts as web UI activity and restarts
+ * the inactivity timeout (only while edit mode is on). */
+static int64_t edit_remaining_us(bool touch)
+{
+    int64_t now = esp_timer_get_time();
+    bool expired = false;
+    portENTER_CRITICAL(&s_edit_mux);
+    if (s_edit_until_us && now >= s_edit_until_us) {
+        s_edit_until_us = 0;
+        expired = true;
+    }
+    if (s_edit_until_us && touch) s_edit_until_us = now + EDIT_TIMEOUT_US;
+    int64_t rem = s_edit_until_us ? s_edit_until_us - now : 0;
+    portEXIT_CRITICAL(&s_edit_mux);
+    if (expired) ESP_LOGI(TAG, "edit mode ended (no web UI activity); web UI is read-only");
+    return rem;
+}
+
+void web_edit_enable(void)
+{
+    portENTER_CRITICAL(&s_edit_mux);
+    s_edit_until_us = esp_timer_get_time() + EDIT_TIMEOUT_US;
+    portEXIT_CRITICAL(&s_edit_mux);
+    ESP_LOGI(TAG, "edit mode on (ends after %d min without web UI activity)", CONFIG_AO_EDIT_TIMEOUT_MIN);
+}
+
+void web_edit_disable(void)
+{
+    portENTER_CRITICAL(&s_edit_mux);
+    s_edit_until_us = 0;
+    portEXIT_CRITICAL(&s_edit_mux);
+    ESP_LOGI(TAG, "edit mode off; web UI is read-only");
+}
+
+bool web_edit_active(void) { return edit_remaining_us(false) > 0; }
+
+static esp_err_t send_read_only(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "403 Forbidden");
+    cJSON *o = cJSON_CreateObject();
+    char msg[96];
+    snprintf(msg, sizeof(msg), "read-only mode: hold the device button for %d s to enable editing",
+             CONFIG_AO_EDIT_HOLD_MS / 1000);
+    cJSON_AddStringToObject(o, "error", msg);
+    cJSON_AddBoolToObject(o, "read_only", true);
+    return send_json(req, o);
+}
+
+/* First statement of every handler that changes configuration: refuses the request in read-only
+ * mode, otherwise counts it as web UI activity. */
+#define REQUIRE_EDIT(req) do { if (edit_remaining_us(true) <= 0) return send_read_only(req); } while (0)
+
+static esp_err_t send_session(httpd_req_t *req)
+{
+    int64_t rem = edit_remaining_us(false);
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "edit", rem > 0);
+    cJSON_AddNumberToObject(o, "remaining_s", (double)(rem / 1000000));
+    cJSON_AddNumberToObject(o, "timeout_min", CONFIG_AO_EDIT_TIMEOUT_MIN);
+    cJSON_AddNumberToObject(o, "hold_s", CONFIG_AO_EDIT_HOLD_MS / 1000);
+    return send_json(req, o);
+}
+
+/* GET /api/session   {"edit":false,"remaining_s":0,"timeout_min":10,"hold_s":5} */
+static esp_err_t h_session_get(httpd_req_t *req) { return send_session(req); }
+
+/* POST /api/session/ping   user activity in the web UI: keeps edit mode alive (never enables it) */
+static esp_err_t h_session_ping(httpd_req_t *req)
+{
+    edit_remaining_us(true);
+    return send_session(req);
+}
+
+/* POST /api/session/logout   back to read-only */
+static esp_err_t h_session_logout(httpd_req_t *req)
+{
+    if (web_edit_active()) web_edit_disable();
+    return send_session(req);
+}
+
 static void reboot_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(1500));
@@ -175,6 +262,7 @@ static esp_err_t h_agents_get(httpd_req_t *req)
     }
     cJSON_AddNumberToObject(root, "max", AGENT_MAX);
     cJSON_AddNumberToObject(root, "offline_timeout_min", agents_get_offline_timeout());
+    cJSON_AddBoolToObject(root, "edit", web_edit_active()); /* polled by the web UI: picks up a button unlock */
     return send_json(req, root);
 }
 
@@ -203,6 +291,7 @@ static esp_err_t h_events_get(httpd_req_t *req)
 /* POST /api/agents/settings   body: {"offline_timeout_min":0..240}  (0 = never mark offline) */
 static esp_err_t h_agents_settings(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char *body = read_body(req, 128);
     cJSON *j = body ? cJSON_Parse(body) : NULL;
     free(body);
@@ -221,6 +310,7 @@ static esp_err_t h_agents_settings(httpd_req_t *req)
 
 static esp_err_t h_agents_post(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char *body = read_body(req, 1024);
     if (!body) return send_error(req, "400 Bad Request", "no body");
     cJSON *j = cJSON_Parse(body);
@@ -246,6 +336,7 @@ static esp_err_t h_agents_post(httpd_req_t *req)
 /* PUT /api/agents/<id>   body: {"name":"..","kind":"..","move":-1|1} */
 static esp_err_t h_agents_put(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char id[AGENT_ID_LEN];
     if (!path_id(req->uri, "/api/agents/", id, sizeof(id))) return send_error(req, "400 Bad Request", "bad id");
     char *body = read_body(req, 1024);
@@ -270,6 +361,7 @@ static esp_err_t h_agents_put(httpd_req_t *req)
 
 static esp_err_t h_agents_delete(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char id[AGENT_ID_LEN];
     if (!path_id(req->uri, "/api/agents/", id, sizeof(id))) return send_error(req, "400 Bad Request", "bad id");
     return err_to_resp(req, agents_remove(id));
@@ -340,6 +432,7 @@ static esp_err_t h_status(httpd_req_t *req)
 
 static esp_err_t h_enter_setup(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     settings_set_force_setup(true);
     send_ok(req);
     ui_set_message("Rebooting", "Starting Wi-Fi setup mode");
@@ -354,6 +447,7 @@ static esp_err_t h_enter_setup(httpd_req_t *req)
  * status on port 80 and on hook_port. */
 static esp_err_t h_network_set(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char *body = read_body(req, 256);
     cJSON *j = body ? cJSON_Parse(body) : NULL;
     free(body);
@@ -422,6 +516,7 @@ static esp_err_t h_display_get(httpd_req_t *req) { return send_json(req, display
  * Any change switches a display in standby on again (for at least a minute) so the result is visible. */
 static esp_err_t h_display_set(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char *body = read_body(req, 256);
     cJSON *j = body ? cJSON_Parse(body) : NULL;
     free(body);
@@ -465,6 +560,7 @@ static esp_err_t h_ota_get(httpd_req_t *req) { return send_json(req, ota_to_json
 /* POST /api/ota   body: {"url":"..","asset":"..","auto_update":true,"interval_h":24} */
 static esp_err_t h_ota_config(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char *body = read_body(req, 1024);
     cJSON *j = body ? cJSON_Parse(body) : NULL;
     free(body);
@@ -508,11 +604,20 @@ static esp_err_t ota_req_resp(httpd_req_t *req, bool install)
     return send_ok(req);
 }
 
-static esp_err_t h_ota_check(httpd_req_t *req) { return ota_req_resp(req, false); }
-static esp_err_t h_ota_update(httpd_req_t *req) { return ota_req_resp(req, true); }
+static esp_err_t h_ota_check(httpd_req_t *req)
+{
+    REQUIRE_EDIT(req);
+    return ota_req_resp(req, false);
+}
+static esp_err_t h_ota_update(httpd_req_t *req)
+{
+    REQUIRE_EDIT(req);
+    return ota_req_resp(req, true);
+}
 
 static esp_err_t h_ota_rollback(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     esp_err_t e = ota_rollback();
     if (e == ESP_ERR_NOT_FOUND) return send_error(req, "409 Conflict", "no usable firmware in the other slot");
     if (e == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "an update is in progress");
@@ -601,6 +706,7 @@ static void wifi_apply(void)
 /* POST /api/wifi/networks   (normal mode: takes effect without reboot) */
 static esp_err_t h_wifi_add(httpd_req_t *req)
 {
+    REQUIRE_EDIT(req);
     char ssid[33];
     const char *err = wifi_upsert_from_body(req, ssid, sizeof(ssid));
     if (err) return send_error(req, "400 Bad Request", err);
@@ -622,6 +728,13 @@ static esp_err_t h_wifi_delete(httpd_req_t *req)
     if (e != ESP_OK) return send_error(req, "400 Bad Request", "ssid required");
     wifi_apply();
     return send_json(req, wifi_list_json());
+}
+
+/* Main server: same, but only in edit mode (the setup portal needs physical access already) */
+static esp_err_t h_wifi_delete_main(httpd_req_t *req)
+{
+    REQUIRE_EDIT(req);
+    return h_wifi_delete(req);
 }
 
 /* Setup portal: POST /api/wifi   save a network and reboot to connect */
@@ -688,7 +801,7 @@ static httpd_handle_t start_server(int max_handlers, uint16_t port, uint16_t ctr
 
 esp_err_t web_server_start_main(void)
 {
-    httpd_handle_t h = start_server(28, 80, 32768, 7);
+    httpd_handle_t h = start_server(32, 80, 32768, 7);
     if (!h) return ESP_FAIL;
     REG(h, "/", HTTP_GET, h_index);
     REG(h, "/api/agents", HTTP_GET, h_agents_get);
@@ -704,7 +817,7 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/network", HTTP_POST, h_network_set);
     REG(h, "/api/wifi/networks", HTTP_GET, h_wifi_list);
     REG(h, "/api/wifi/networks", HTTP_POST, h_wifi_add);
-    REG(h, "/api/wifi/networks/delete", HTTP_POST, h_wifi_delete);
+    REG(h, "/api/wifi/networks/delete", HTTP_POST, h_wifi_delete_main);
     REG(h, "/api/display", HTTP_GET, h_display_get);
     REG(h, "/api/display", HTTP_POST, h_display_set);
     REG(h, "/api/ota", HTTP_GET, h_ota_get);
@@ -712,6 +825,9 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/ota/check", HTTP_POST, h_ota_check);
     REG(h, "/api/ota/update", HTTP_POST, h_ota_update);
     REG(h, "/api/ota/rollback", HTTP_POST, h_ota_rollback);
+    REG(h, "/api/session", HTTP_GET, h_session_get);
+    REG(h, "/api/session/ping", HTTP_POST, h_session_ping);
+    REG(h, "/api/session/logout", HTTP_POST, h_session_logout);
     REG(h, "/*", HTTP_OPTIONS, h_options);
     ESP_LOGI(TAG, "web UI ready");
 

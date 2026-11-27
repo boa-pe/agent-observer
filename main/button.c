@@ -70,8 +70,9 @@ static void button_task(void *arg)
     bool stable = raw_pressed();
     bool last_raw = stable;
     int64_t changed_at = esp_timer_get_time();
-    int64_t pressed_at = stable ? changed_at : 0;
-    bool long_fired = stable; /* ignore a press that was already held when we started */
+    int64_t pressed_at = 0;
+    bool armed = false; /* press seen going down by this task; a press already held at start is ignored */
+    bool edit_fired = false, long_fired = false;
 
     for (;;) {
         if (!stable && !last_raw) {
@@ -92,17 +93,27 @@ static void button_task(void *arg)
             s_pressed = stable;
             if (stable) {
                 pressed_at = now;
-                long_fired = false;
-            } else if (!long_fired && pressed_at) {
-                s_cb(BUTTON_EVENT_SHORT);
+                armed = true;
+                edit_fired = long_fired = false;
+            } else if (armed) {
+                armed = false;
+                s_cb(edit_fired || long_fired ? BUTTON_EVENT_HOLD_END : BUTTON_EVENT_SHORT);
             }
         }
-#if CONFIG_AO_LONG_PRESS_SETUP_MS > 0
-        if (stable && !long_fired && now - pressed_at >= (int64_t)CONFIG_AO_LONG_PRESS_SETUP_MS * 1000) {
-            long_fired = true;
-            s_cb(BUTTON_EVENT_LONG);
-        }
+        if (stable && armed) {
+#if CONFIG_AO_EDIT_HOLD_MS > 0
+            if (!edit_fired && now - pressed_at >= (int64_t)CONFIG_AO_EDIT_HOLD_MS * 1000) {
+                edit_fired = true;
+                s_cb(BUTTON_EVENT_EDIT);
+            }
 #endif
+#if CONFIG_AO_LONG_PRESS_SETUP_MS > 0
+            if (!long_fired && now - pressed_at >= (int64_t)CONFIG_AO_LONG_PRESS_SETUP_MS * 1000) {
+                long_fired = true;
+                s_cb(BUTTON_EVENT_LONG);
+            }
+#endif
+        }
     }
 }
 

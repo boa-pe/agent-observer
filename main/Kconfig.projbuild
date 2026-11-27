@@ -154,9 +154,23 @@ menu "Agent Observer"
         config AO_SETUP_HOLD_MS
             int "How long the button must be held in the boot window (ms)"
             default 1000
+        config AO_EDIT_HOLD_MS
+            int "Holding the button this long unlocks web UI editing (ms, 0 = disabled)"
+            default 5000
+            help
+                The web UI is read-only by default. Holding the button for this long during
+                normal operation enables editing until the user logs out in the web UI or
+                AO_EDIT_TIMEOUT_MIN passes without web UI activity. Keep it well below
+                AO_LONG_PRESS_SETUP_MS.
+        config AO_EDIT_TIMEOUT_MIN
+            int "Web UI edit mode ends after this many minutes without web UI activity"
+            range 1 240
+            default 10
         config AO_LONG_PRESS_SETUP_MS
             int "Long press during normal operation enters setup (ms, 0 = disabled)"
-            default 6000
+            default 10000
+            help
+                Must be longer than AO_EDIT_HOLD_MS: the hold passes the edit unlock first.
         config AO_MAX_AGENTS
             int "Maximum number of agents"
             range 1 16

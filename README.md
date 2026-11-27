@@ -16,7 +16,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   fast red = error, breathing blue = no Wi-Fi, breathing cyan = no agents configured.
   The LED follows the agent on screen, including when you cycle agents with the button
   (menuconfig can switch it to the most urgent state across *all* agents).
-- **User button**: short press cycles through agents; long press (6 s) enters Wi-Fi setup.
+- **User button**: short press cycles through agents; hold 5 s to unlock editing in the web UI; hold 10 s to enter
+  Wi-Fi setup.
 - **Automatic selection**: the display shows the most urgent online agent (waiting > error > working > idle).
   It is re-evaluated whenever any agent changes state (including going offline) and when a button selection
   expires; on a tie the agent on screen stays, then the one whose state just changed wins. An agent picked with
@@ -24,6 +25,11 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Web UI** (`http://agent-observer.local` or the IP shown on screen): add/rename/reorder agents,
   see live states, generate ready-to-paste hook configuration for Claude Code, VS Code Copilot,
   Copilot CLI, or plain curl.
+- **Read-only web UI by default**: anyone on the network can watch agents and copy hook templates, but settings
+  can only be changed after holding the device button for 5 s (the screen confirms *Editing enabled* and shows an
+  *EDIT* tag while unlocked). Editing ends with *Log out* in the web UI or after 10 minutes without activity in
+  the web UI (`CONFIG_AO_EDIT_HOLD_MS`, `CONFIG_AO_EDIT_TIMEOUT_MIN`). Edit mode applies to the whole device, not
+  to one browser. Agent status (hooks, `/api/state`) is always accepted.
 - **Browser wall** (`python viewer/server.py` → `http://127.0.0.1:8770/`): same robots and hook
   URLs as the LCD, as a grid in the browser (no ESP board required).
 - **Several monitors in one network**: the mDNS name (`<name>.local`, default `agent-observer`) and the port
@@ -94,7 +100,7 @@ Porting checklist:
    `http://192.168.4.1`).
 3. Pick your network, enter the password, *Save & connect*. The device reboots and shows its IP.
 
-Setup mode can also be entered from the web UI (*Wi-Fi setup...*) or by a 6 s button press.
+Setup mode can also be entered from the web UI (*Wi-Fi setup...*) or by a 10 s button press (the hold passes the 5 s edit unlock on the way).
 
 Up to **5 networks** can be saved (setup portal, or the *Wi-Fi networks* card in the normal web UI,
 which applies changes without a restart). The device scans and joins the *preferred* network when it is
@@ -254,6 +260,10 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 
 ## REST API
 
+Requests that change settings (all `POST`/`PUT`/`DELETE` below except `/api/hook`, `/api/state` and `/api/session/*`)
+are refused with `403 {"error":"read-only mode: ...","read_only":true}` unless edit mode is on (button held 5 s).
+Each accepted change restarts the 10 min inactivity timeout.
+
 | Method | Path | Body |
 |---|---|---|
 | GET | `/api/agents` | – |
@@ -277,6 +287,9 @@ are kept). If you have an old `sdkconfig`, make sure `CONFIG_BOOTLOADER_APP_ROLL
 | POST | `/api/ota/check` | check for an update now |
 | POST | `/api/ota/update` | check and install an update now |
 | POST | `/api/ota/rollback` | boot the firmware in the other slot again |
+| GET | `/api/session` | `{"edit":false,"remaining_s":0,"timeout_min":10,"hold_s":5}` edit mode state (`GET /api/agents` also reports `edit`) |
+| POST | `/api/session/ping` | web UI activity: restarts the inactivity timeout while edit mode is on (never turns it on) |
+| POST | `/api/session/logout` | end edit mode (back to read-only) |
 
 States: `offline`, `idle`, `working`, `waiting`, `error`.
 
@@ -290,7 +303,7 @@ States: `offline`, `idle`, `working`, `waiting`, `error`.
 | `main/gfx.c`, `font5x7.c` | small software rasterizer |
 | `main/display.c` | `esp_lcd` ST7789 setup, double-buffered DMA bands |
 | `main/status_led.c` | WS2812 / PWM LED patterns |
-| `main/button.c` | debounce, short/long press |
+| `main/button.c` | debounce, short press, edit-unlock hold, setup long press |
 | `main/wifi_mgr.c`, `dns_server.c` | STA with backoff reconnect, setup AP, captive DNS |
 | `main/web_server.c`, `main/web/*.html` | HTTP API and embedded pages |
 | `main/ota.c` | update source resolution (GitHub / manifest / binary), periodic check, install, rollback confirm |

@@ -15,6 +15,7 @@
 #include "agents.h"
 #include "wifi_mgr.h"
 #include "power.h"
+#include "web_server.h"
 
 #define TWO_PI 6.2831853f
 #define FRAME_MS 40
@@ -571,6 +572,7 @@ static void draw_normal(uint32_t t)
     char idx[24];
     snprintf(idx, sizeof(idx), "%d/%d", s->displayed + 1, s->count);
     gfx_text(DISP_W - 4 - gfx_text_width(idx, 1), 4, idx, 1, C_MUTED);
+    if (web_edit_active()) gfx_text(4, 4, "EDIT", 1, state_color(AGENT_STATE_WAITING)); /* web UI unlocked */
     int ns = gfx_fit_scale(a->cfg.name, DISP_W - 8, name_scale_for_width(DISP_W));
     char name[AGENT_NAME_LEN + 4];
     fit_text(name, sizeof(name), a->cfg.name, DISP_W - 8, ns);

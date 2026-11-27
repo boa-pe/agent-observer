@@ -34,11 +34,24 @@
 
 static const char *TAG = "main";
 
+static bool s_edit_msg; /* the "editing enabled" message is on screen until the button is released */
+
 static void on_button_normal(button_event_t ev)
 {
     if (ev == BUTTON_EVENT_SHORT) {
         if (power_wake()) return; /* the press that switches the display on doesn't cycle */
         agents_cycle();
+    } else if (ev == BUTTON_EVENT_EDIT) {
+        power_wake();
+        web_edit_enable();
+        char body[96];
+        snprintf(body, sizeof(body), "Web UI unlocked until logout or %d min idle. Keep holding for Wi-Fi setup.",
+                 CONFIG_AO_EDIT_TIMEOUT_MIN);
+        ui_set_message("Editing enabled", body);
+        s_edit_msg = true;
+    } else if (ev == BUTTON_EVENT_HOLD_END) {
+        if (s_edit_msg) ui_set_mode(UI_MODE_NORMAL);
+        s_edit_msg = false;
     } else if (ev == BUTTON_EVENT_LONG) {
         ESP_LOGI(TAG, "long press: entering setup mode");
         settings_set_force_setup(true);
