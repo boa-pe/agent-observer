@@ -10,7 +10,7 @@
  * are switched off and only Wi-Fi (hooks, web UI) keeps running. Any agent leaving the offline
  * state, a button press or a display change from the web UI ends it. With the standby clock
  * (clock.h) and at least one agent configured, standby starts at boot as soon as Wi-Fi is
- * connected (all agents begin offline).
+ * connected and the time has been synchronized via NTP (all agents begin offline).
  */
 #include <stdbool.h>
 #include <stdint.h>

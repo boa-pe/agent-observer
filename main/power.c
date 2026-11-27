@@ -25,8 +25,10 @@ static int64_t s_hold_until;      /* no standby before this time (manual wake) *
 static TaskHandle_t s_tick_task;
 static bool s_first_tick = true;
 /* At boot every agent is offline: with the standby clock, start in standby right away instead of
- * waiting for the timeout, but only once Wi-Fi is connected (the boot screen shows the connection
- * progress, and the clock needs NTP). Ends with the first agent activity or a manual wake. */
+ * waiting for the timeout, but only once Wi-Fi is connected and the time has been synchronized
+ * via NTP (until then the screen shows the connection progress instead of a clock without a time).
+ * If either never happens, the normal standby timeout still applies. Ends with the first agent
+ * activity or a manual wake. */
 static bool s_boot_standby;
 
 static uint8_t clamp_timeout(int minutes)
@@ -75,7 +77,7 @@ void power_tick(const agents_snapshot_t *s)
         s_first_tick = false;
         /* not without agents: the screen then explains how to add them */
         s_boot_standby = all_off && s->count > 0 && clock_standby_enabled();
-        if (s_boot_standby) ESP_LOGI(TAG, "all agents offline at boot: standby clock once Wi-Fi is up");
+        if (s_boot_standby) ESP_LOGI(TAG, "all agents offline at boot: standby clock once Wi-Fi is up and NTP synced");
     }
     if (!all_off) {
         s_all_off_since = 0;
@@ -84,8 +86,8 @@ void power_tick(const agents_snapshot_t *s)
         s_all_off_since = now;
     }
 
-    /* entering boot standby waits for Wi-Fi; a later link drop doesn't end it */
-    const bool boot_sb = s_boot_standby && (s_standby || wifi_mgr_connected());
+    /* entering boot standby waits for Wi-Fi and the first NTP sync; a later link drop doesn't end it */
+    const bool boot_sb = s_boot_standby && (s_standby || (wifi_mgr_connected() && clock_since_sync_s() >= 0));
     const bool want = s_timeout_min > 0 && all_off && now >= s_hold_until &&
                       (boot_sb || now - s_all_off_since >= (int64_t)s_timeout_min * 60 * 1000000);
     if (want == s_standby) return;

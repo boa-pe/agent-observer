@@ -44,7 +44,7 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Power saving**: when every agent has been offline for 15 min (*Standby after* in the *Display* card, 0-240 min,
   0 = never; kept across reboots), the display (backlight and panel) and the LED switch off and the device only keeps
   Wi-Fi alive. Alternatively (*In standby: Show date and time*) the display shows a clock at the dimmed level; in that mode
-  the device also goes to standby right after boot when agents are configured (they all start offline). The next agent event switches everything on again; a button press does too (for at least a minute,
+  the device also goes to standby right after boot, once Wi-Fi is connected and the time is synchronized via NTP, when agents are configured (they all start offline). The next agent event switches everything on again; a button press does too (for at least a minute,
   without cycling agents). During normal operation the CPU scales its clock down and sleeps automatically between
   animation frames and Wi-Fi beacons, and the radio uses modem sleep. See [Power saving](#power-saving).
 - **Standby clock**: time from a configurable NTP server (default `pool.ntp.org`, re-synchronized hourly) in a
