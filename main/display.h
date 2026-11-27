@@ -31,6 +31,8 @@ bool display_is_dimmed(void);
  * (see display_frame_begin). */
 esp_err_t display_set_rotation(int degrees);
 int display_get_rotation(void);
+/* Standby clock: keep the backlight at the dimmed level while on (independent of the dim timeout). */
+void display_force_dim(bool on);
 /* Call before drawing the first band of a frame: applies a pending rotation change. */
 void display_frame_begin(void);
 /* Call on every received agent event: restores full brightness and restarts the countdown. */

@@ -191,9 +191,9 @@ int gfx_text_width(const char *s, int scale)
     return n ? (n * 6 - 1) * scale : 0;
 }
 
-int gfx_text(int x, int y, const char *s, int scale, color_t c)
+int gfx_text_xy(int x, int y, const char *s, int sx, int sy, color_t c)
 {
-    if (y + 7 * scale < s_y0 || y >= s_y1) return gfx_text_width(s, scale);
+    if (y + 7 * sy < s_y0 || y >= s_y1) return gfx_text_width(s, sx);
     int x_start = x;
     uint16_t sc = swap16(c);
     for (; *s; s++) {
@@ -204,14 +204,19 @@ int gfx_text(int x, int y, const char *s, int scale, color_t c)
             uint8_t bits = g[col];
             for (int row = 0; row < 7; row++) {
                 if (bits & (1 << row)) {
-                    int px = x + col * scale, py = y + row * scale;
-                    for (int dy = 0; dy < scale; dy++) span(px, px + scale - 1, py + dy, sc);
+                    int px = x + col * sx, py = y + row * sy;
+                    for (int dy = 0; dy < sy; dy++) span(px, px + sx - 1, py + dy, sc);
                 }
             }
         }
-        x += 6 * scale;
+        x += 6 * sx;
     }
-    return x - x_start - scale;
+    return x - x_start - sx;
+}
+
+int gfx_text(int x, int y, const char *s, int scale, color_t c)
+{
+    return gfx_text_xy(x, y, s, scale, scale, c);
 }
 
 void gfx_text_centered(int cx, int y, const char *s, int scale, color_t c)

@@ -8,7 +8,9 @@
  *
  * Standby: when every agent has been offline for the standby timeout, the display and the LED
  * are switched off and only Wi-Fi (hooks, web UI) keeps running. Any agent leaving the offline
- * state, a button press or a display change from the web UI ends it.
+ * state, a button press or a display change from the web UI ends it. With the standby clock
+ * (clock.h) and at least one agent configured, standby starts at boot as soon as Wi-Fi is
+ * connected (all agents begin offline).
  */
 #include <stdbool.h>
 #include <stdint.h>

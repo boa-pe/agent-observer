@@ -10,7 +10,8 @@
  *      animate the displayed agent; the button cycles through agents.
  *      Optionally checks a configured URL (e.g. a GitHub releases page) for new firmware (ota.c).
  *      When all agents have been offline for a while the display and LED switch off (power.c);
- *      an agent event or a button press switches them on again.
+ *      an agent event or a button press switches them on again. Optionally the display shows the
+ *      date and time (NTP, clock.c) in standby instead of switching off.
  */
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +32,7 @@
 #include "web_server.h"
 #include "ota.h"
 #include "power.h"
+#include "clock.h"
 
 static const char *TAG = "main";
 
@@ -40,9 +42,15 @@ static void on_button_normal(button_event_t ev)
 {
     if (ev == BUTTON_EVENT_SHORT) {
         if (power_wake()) return; /* the press that switches the display on doesn't cycle */
+        if (display_is_dimmed()) {
+            display_activity();   /* back to normal brightness, restart the dim countdown */
+            return;               /* like waking from standby: this press doesn't cycle */
+        }
+        display_activity();
         agents_cycle();
     } else if (ev == BUTTON_EVENT_EDIT) {
         power_wake();
+        display_activity();
         web_edit_enable();
         char body[96];
         snprintf(body, sizeof(body), "Web UI unlocked until logout or %d min idle. Keep holding for Wi-Fi setup.",
@@ -150,6 +158,7 @@ static void run_normal_mode(const wifi_list_t *nets)
     ui_set_mode(UI_MODE_NORMAL);
     button_start_events(on_button_normal);
     wifi_mgr_start_sta(nets);
+    clock_start();
     start_mdns();
     web_server_start_main();
     ota_start(); /* confirms the image once Wi-Fi is up, then checks for updates periodically */
@@ -167,6 +176,7 @@ void app_main(void)
 {
     ESP_ERROR_CHECK(settings_init());
     power_init();
+    clock_init();
     agents_init();
     ota_init();
 

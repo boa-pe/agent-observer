@@ -96,6 +96,7 @@ static uint8_t s_dim_timeout_min = DIM_DEFAULT;
 static uint8_t s_dim_level = DIMLVL_DEFAULT;
 static bool s_dimmed;
 static bool s_dim_preview;   /* web UI slider is being dragged: show the dimmed level */
+static bool s_force_dim;     /* standby clock: always the dimmed level */
 static int64_t s_last_activity_us;
 
 static uint8_t clamp_brightness(int pct)
@@ -109,7 +110,7 @@ static void bl_apply(void)
     uint32_t duty = 0;
     if (s_bl_on) {
         uint32_t p = s_brightness;
-        if ((s_dimmed || s_dim_preview) && s_dim_level < p) p = s_dim_level;
+        if ((s_dimmed || s_dim_preview || s_force_dim) && s_dim_level < p) p = s_dim_level;
         duty = (BL_MAX_DUTY * p * p + 5000) / 10000;
         if (duty == 0) duty = 1;
     }
@@ -259,6 +260,13 @@ void display_frame_begin(void)
     xSemaphoreGive(s_free);
     xSemaphoreGive(s_free);
     ESP_LOGI(TAG, "rotation %d applied", s_rot180 ? 180 : 0);
+}
+
+void display_force_dim(bool on)
+{
+    if (on == s_force_dim) return;
+    s_force_dim = on;
+    bl_apply();
 }
 
 void display_activity(void)

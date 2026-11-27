@@ -16,7 +16,8 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
   fast red = error, breathing blue = no Wi-Fi, breathing cyan = no agents configured.
   The LED follows the agent on screen, including when you cycle agents with the button
   (menuconfig can switch it to the most urgent state across *all* agents).
-- **User button**: short press cycles through agents; hold 5 s to unlock editing in the web UI; hold 10 s to enter
+- **User button**: short press cycles through agents (if the display is dimmed or in standby, the press only
+  brings it back to normal brightness); hold 5 s to unlock editing in the web UI; hold 10 s to enter
   Wi-Fi setup.
 - **Automatic selection**: the display shows the most urgent online agent (waiting > error > working > idle).
   It is re-evaluated whenever any agent changes state (including going offline) and when a button selection
@@ -35,16 +36,21 @@ All board specifics live in `menuconfig`, so other ESP32 boards need no code cha
 - **Several monitors in one network**: the mDNS name (`<name>.local`, default `agent-observer`) and the port
   that accepts agent status are set in the web UI (*Network* card) and stored on the device; the generated hook
   templates use both. Status is always accepted on port 80 as well, so the web UI and old hooks keep working.
-- **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card)
-  and kept across reboots. An optional inactivity timeout (0-60 min) drops the backlight to a separately set
+- **Display brightness**: the backlight is PWM-dimmed; the level is set from the web UI (*Display* card;
+  levels are previewed on the panel while dragging, all display settings are stored with *Save*) and kept across reboots. An optional inactivity timeout (0-60 min) drops the backlight to a separately set
   *Dimmed* level (default 50 %, never above the normal level) when no agent event has arrived for that long; the next event restores it. It never dims while an agent is waiting for
   user input; the countdown starts once no agent is waiting any more. The picture can be rotated by
   180° (*Rotation* in the same card), e.g. to mount the device upside down; applied immediately and on boot.
-- **Power saving**: when every agent has been offline for 15 min (*Off after* in the *Display* card, 0-240 min,
+- **Power saving**: when every agent has been offline for 15 min (*Standby after* in the *Display* card, 0-240 min,
   0 = never; kept across reboots), the display (backlight and panel) and the LED switch off and the device only keeps
-  Wi-Fi alive. The next agent event switches everything on again; a button press does too (for at least a minute,
+  Wi-Fi alive. Alternatively (*In standby: Show date and time*) the display shows a clock at the dimmed level; in that mode
+  the device also goes to standby right after boot when agents are configured (they all start offline). The next agent event switches everything on again; a button press does too (for at least a minute,
   without cycling agents). During normal operation the CPU scales its clock down and sleeps automatically between
   animation frames and Wi-Fi beacons, and the radio uses modem sleep. See [Power saving](#power-saving).
+- **Standby clock**: time from a configurable NTP server (default `pool.ntp.org`, re-synchronized hourly) in a
+  time zone picked by name in the web UI (*Clock* card; ~80 common zones, or a custom POSIX TZ string), 12- or
+  24-hour format. Shows `HH:MM` inside a ring that fills clockwise with the seconds, plus the weekday, the date and the ISO calendar week
+  (`CW 48`), all in white.
 - **Firmware updates over the air**: point the device at a GitHub repository/releases page (or a JSON
   manifest / direct `.bin` URL) and it checks periodically and installs new releases itself, with
   automatic rollback if the new firmware fails to come up.
@@ -190,8 +196,9 @@ ESP-IDF power management (`CONFIG_PM_ENABLE`, `CONFIG_FREERTOS_USE_TICKLESS_IDLE
   beacon/DTIM interval).
 - **Backlight / LED PWM** are clocked from RC_FAST so they keep running in light sleep (ESP-IDF 5.4+; with older
   versions light sleep is only used while the backlight is off).
-- **Standby** (all agents offline for the *Off after* time): backlight off, panel in sleep mode, LED off, no
-  rendering, housekeeping once per second.
+- **Standby** (all agents offline for the *Standby after* time): backlight off, panel in sleep mode, LED off, no
+  rendering, housekeeping once per second. With the standby clock the panel stays on at the dimmed backlight level
+  and is redrawn five times per second (the seconds ring moves in 0.2 s steps); the CPU sleeps in between.
 
 USB Serial/JTAG (the USB-C port of ESP32-C6 boards) does not work during light sleep. By default
 `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION` is enabled with power saving, so light sleep is skipped while a USB host is
@@ -280,8 +287,10 @@ Each accepted change restarts the 10 min inactivity timeout.
 | GET | `/api/wifi/networks` | saved networks (no passwords) |
 | POST | `/api/wifi/networks` | `{"ssid":"..","password":"..","preferred":true}` add/update (omit `password` to keep it) |
 | POST | `/api/wifi/networks/delete` | `{"ssid":".."}` |
-| GET | `/api/display` | `{"brightness":100,"adjustable":true,"dim_brightness":50,"dim_timeout_min":0,"dimmed":false,"rotation":0}` |
-| POST | `/api/display` | `{"brightness":5..100,"dim_brightness":5..100,"dim_timeout_min":0..60,"rotation":0\|180}` (any field) apply and store; add `"preview":true` to apply (show) the brightness / dimmed level without storing |
+| GET | `/api/display` | `{"brightness":100,"adjustable":true,"dim_brightness":50,"dim_timeout_min":0,"dimmed":false,"rotation":0,"standby_timeout_min":15,"standby":false,"standby_clock":false}` |
+| POST | `/api/display` | `{"brightness":5..100,"dim_brightness":5..100,"dim_timeout_min":0..60,"rotation":0\|180,"standby_timeout_min":0..240,"standby_clock":true}` (any field) apply and store; add `"preview":true` to apply (show) the brightness / dimmed level without storing |
+| GET | `/api/clock` | `{"server":"pool.ntp.org","tz":"CET-1CEST,M3.5.0,M10.5.0/3","tz_name":"Europe/Berlin","h24":true,"standby_clock":false,"valid":true,"local":"2026-11-27 14:03:12 CET","since_sync_s":42}` |
+| POST | `/api/clock` | `{"server":"..","tz":"<POSIX TZ>","tz_name":"..","h24":true,"standby_clock":true}` (any field) apply and store |
 | GET | `/api/ota` | update configuration and status |
 | POST | `/api/ota` | `{"url":"https://github.com/o/r","asset":"","auto_update":true,"interval_h":24}` |
 | POST | `/api/ota/check` | check for an update now |
@@ -306,5 +315,6 @@ States: `offline`, `idle`, `working`, `waiting`, `error`.
 | `main/button.c` | debounce, short press, edit-unlock hold, setup long press |
 | `main/wifi_mgr.c`, `dns_server.c` | STA with backoff reconnect, setup AP, captive DNS |
 | `main/web_server.c`, `main/web/*.html` | HTTP API and embedded pages |
+| `main/clock.c` | SNTP, time zone, clock settings |
 | `main/ota.c` | update source resolution (GitHub / manifest / binary), periodic check, install, rollback confirm |
 | `main/Kconfig.projbuild` | all board/behaviour options |

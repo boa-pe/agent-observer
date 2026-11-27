@@ -19,6 +19,7 @@
 #include "ota.h"
 #include "display.h"
 #include "power.h"
+#include "clock.h"
 
 static const char *TAG = "web";
 
@@ -501,18 +502,21 @@ static cJSON *display_to_json(void)
     cJSON_AddNumberToObject(o, "rotation", display_get_rotation());
     cJSON_AddNumberToObject(o, "standby_timeout_min", power_get_standby_timeout());
     cJSON_AddBoolToObject(o, "standby", power_in_standby());
+    cJSON_AddBoolToObject(o, "standby_clock", clock_standby_enabled());
     return o;
 }
 
 static esp_err_t h_display_get(httpd_req_t *req) { return send_json(req, display_to_json()); }
 
 /* POST /api/display   body: {"brightness":5..100, "dim_brightness":5..100, "preview":false,
- *                            "dim_timeout_min":0..60, "rotation":0|180, "standby_timeout_min":0..240}
+ *                            "dim_timeout_min":0..60, "rotation":0|180, "standby_timeout_min":0..240,
+ *                            "standby_clock":false}
  * Fields are optional. preview=true applies brightness / dim_brightness without storing it (live
  * slider feedback; dim_brightness is then shown on the panel). dim_brightness: level used while
  * dimmed (capped at brightness). dim_timeout_min: minutes without an agent event before the
  * backlight drops to dim_brightness (0 = never); always stored. rotation: degrees, stored and applied at the next frame.
  * standby_timeout_min: minutes all agents must be offline before the display switches off (0 = never); stored.
+ * standby_clock: in standby show the date and time (dimmed) instead of switching the display off; stored.
  * Any change switches a display in standby on again (for at least a minute) so the result is visible. */
 static esp_err_t h_display_set(httpd_req_t *req)
 {
@@ -527,13 +531,15 @@ static esp_err_t h_display_set(httpd_req_t *req)
     const cJSON *dt = cJSON_GetObjectItem(j, "dim_timeout_min");
     const cJSON *rot = cJSON_GetObjectItem(j, "rotation");
     const cJSON *sb = cJSON_GetObjectItem(j, "standby_timeout_min");
+    const cJSON *sc = cJSON_GetObjectItem(j, "standby_clock");
     const char *err = NULL;
     if (b && (!cJSON_IsNumber(b) || b->valueint < 5 || b->valueint > 100)) err = "brightness must be 5..100";
     if (db && (!cJSON_IsNumber(db) || db->valueint < 5 || db->valueint > 100)) err = "dim_brightness must be 5..100";
     if (dt && (!cJSON_IsNumber(dt) || dt->valueint < 0 || dt->valueint > 60)) err = "dim_timeout_min must be 0..60";
     if (rot && (!cJSON_IsNumber(rot) || (rot->valueint != 0 && rot->valueint != 180))) err = "rotation must be 0 or 180";
     if (sb && (!cJSON_IsNumber(sb) || sb->valueint < 0 || sb->valueint > 240)) err = "standby_timeout_min must be 0..240";
-    if (!b && !db && !dt && !rot && !sb && !err) err = "nothing to set";
+    if (sc && !cJSON_IsBool(sc)) err = "standby_clock must be true or false";
+    if (!b && !db && !dt && !rot && !sb && !sc && !err) err = "nothing to set";
     if (err) {
         cJSON_Delete(j);
         return send_error(req, "400 Bad Request", err);
@@ -541,6 +547,7 @@ static esp_err_t h_display_set(httpd_req_t *req)
     bool persist = !(cJSON_IsBool(pv) && cJSON_IsTrue(pv));
     int pct = b ? b->valueint : -1, dim_pct = db ? db->valueint : -1, minutes = dt ? dt->valueint : -1, degrees = rot ? rot->valueint : -1;
     int standby_min = sb ? sb->valueint : -1;
+    int standby_clock = sc ? cJSON_IsTrue(sc) : -1;
     cJSON_Delete(j);
     power_wake();
     esp_err_t e = ESP_OK;
@@ -549,8 +556,86 @@ static esp_err_t h_display_set(httpd_req_t *req)
     if (e == ESP_OK && minutes >= 0) e = display_set_dim_timeout(minutes);
     if (e == ESP_OK && degrees >= 0) e = display_set_rotation(degrees);
     if (e == ESP_OK && standby_min >= 0) e = power_set_standby_timeout(standby_min);
+    if (e == ESP_OK && standby_clock >= 0) {
+        clock_cfg_t c;
+        clock_get_config(&c);
+        c.standby_clock = standby_clock;
+        e = clock_set_config(&c);
+    }
     if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
     return send_json(req, display_to_json());
+}
+
+/* ---------- clock ---------- */
+
+static cJSON *clock_to_json(void)
+{
+    clock_cfg_t c;
+    clock_get_config(&c);
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "server", c.server);
+    cJSON_AddStringToObject(o, "tz", c.tz);
+    cJSON_AddStringToObject(o, "tz_name", c.tz_name);
+    cJSON_AddBoolToObject(o, "h24", c.h24);
+    cJSON_AddBoolToObject(o, "standby_clock", c.standby_clock);
+    struct tm tm;
+    bool valid = clock_localtime(&tm, NULL);
+    cJSON_AddBoolToObject(o, "valid", valid);
+    if (valid) {
+        char buf[40];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", &tm);
+        cJSON_AddStringToObject(o, "local", buf);
+    }
+    cJSON_AddNumberToObject(o, "since_sync_s", (double)clock_since_sync_s());
+    return o;
+}
+
+/* GET /api/clock   {"server":"pool.ntp.org","tz":"CET-1CEST,M3.5.0,M10.5.0/3","tz_name":"Europe/Berlin",
+ *                   "h24":true,"standby_clock":false,"valid":true,"local":"2026-11-27 14:03:12 CET","since_sync_s":42} */
+static esp_err_t h_clock_get(httpd_req_t *req) { return send_json(req, clock_to_json()); }
+
+/* POST /api/clock   body: {"server":"..","tz":"<POSIX TZ>","tz_name":"..","h24":true,"standby_clock":false}
+ * All fields optional; stored and applied immediately (a new server restarts SNTP). */
+static esp_err_t h_clock_set(httpd_req_t *req)
+{
+    REQUIRE_EDIT(req);
+    char *body = read_body(req, 512);
+    cJSON *j = body ? cJSON_Parse(body) : NULL;
+    free(body);
+    if (!j) return send_error(req, "400 Bad Request", "invalid JSON");
+    clock_cfg_t c;
+    clock_get_config(&c);
+    const cJSON *srv = cJSON_GetObjectItem(j, "server");
+    const cJSON *tz = cJSON_GetObjectItem(j, "tz");
+    const cJSON *tzn = cJSON_GetObjectItem(j, "tz_name");
+    const cJSON *h24 = cJSON_GetObjectItem(j, "h24");
+    const cJSON *sc = cJSON_GetObjectItem(j, "standby_clock");
+    const char *err = NULL;
+    if (srv && !(cJSON_IsString(srv) && clock_server_valid(srv->valuestring)))
+        err = "server must be a host name or IP address (letters, digits, '.', '-', ':')";
+    else if (tz && !(cJSON_IsString(tz) && clock_tz_valid(tz->valuestring)))
+        err = "tz must be a POSIX TZ string, e.g. CET-1CEST,M3.5.0,M10.5.0/3";
+    else if (tzn && !(cJSON_IsString(tzn) && strlen(tzn->valuestring) < CLOCK_TZNAME_LEN))
+        err = "tz_name too long";
+    else if ((h24 && !cJSON_IsBool(h24)) || (sc && !cJSON_IsBool(sc)))
+        err = "h24 and standby_clock must be true or false";
+    if (!err) {
+        if (srv) strlcpy(c.server, srv->valuestring, sizeof(c.server));
+        if (tz) {
+            strlcpy(c.tz, tz->valuestring, sizeof(c.tz));
+            if (!tzn) c.tz_name[0] = 0; /* a bare TZ string is a custom zone */
+        }
+        if (tzn) strlcpy(c.tz_name, tzn->valuestring, sizeof(c.tz_name));
+        if (h24) c.h24 = cJSON_IsTrue(h24);
+        if (sc) c.standby_clock = cJSON_IsTrue(sc);
+    }
+    cJSON_Delete(j);
+    if (err) return send_error(req, "400 Bad Request", err);
+    esp_err_t e = clock_set_config(&c);
+    if (e == ESP_ERR_INVALID_ARG) return send_error(req, "400 Bad Request", "invalid clock settings");
+    if (e != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(e));
+    if (power_in_standby()) ui_wake(); /* redraw the standby clock / switch it on or off now */
+    return send_json(req, clock_to_json());
 }
 
 /* ---------- firmware update ---------- */
@@ -820,6 +905,8 @@ esp_err_t web_server_start_main(void)
     REG(h, "/api/wifi/networks/delete", HTTP_POST, h_wifi_delete_main);
     REG(h, "/api/display", HTTP_GET, h_display_get);
     REG(h, "/api/display", HTTP_POST, h_display_set);
+    REG(h, "/api/clock", HTTP_GET, h_clock_get);
+    REG(h, "/api/clock", HTTP_POST, h_clock_set);
     REG(h, "/api/ota", HTTP_GET, h_ota_get);
     REG(h, "/api/ota", HTTP_POST, h_ota_config);
     REG(h, "/api/ota/check", HTTP_POST, h_ota_check);

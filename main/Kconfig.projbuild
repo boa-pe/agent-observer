@@ -198,6 +198,29 @@ menu "Agent Observer"
         endchoice
     endmenu
 
+    menu "Clock"
+        config AO_NTP_SERVER
+            string "Default NTP server"
+            default "pool.ntp.org"
+            help
+                Time source for the standby clock. Changeable in the web UI (Clock card).
+        config AO_TIMEZONE
+            string "Default time zone (POSIX TZ string)"
+            default "UTC0"
+            help
+                For example "CET-1CEST,M3.5.0,M10.5.0/3" (Central Europe) or
+                "EST5EDT,M3.2.0,M11.1.0" (US Eastern). Selectable by name in the web UI.
+        config AO_TIMEZONE_NAME
+            string "Name shown for the default time zone in the web UI"
+            default "UTC"
+        config AO_STANDBY_CLOCK
+            bool "Default: show date and time in standby instead of turning the display off"
+            default n
+            help
+                Initial value only; changeable in the web UI (Display card). The clock is shown
+                at the dimmed backlight level and redrawn five times per second.
+    endmenu
+
     menu "Power saving"
         config AO_POWER_SAVE
             bool "Wi-Fi modem sleep, CPU frequency scaling and automatic light sleep"

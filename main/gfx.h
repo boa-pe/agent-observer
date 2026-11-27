@@ -24,6 +24,8 @@ void gfx_fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, color_t c
 
 int gfx_text_width(const char *s, int scale);
 int gfx_text(int x, int y, const char *s, int scale, color_t c);
+/* Text with separate horizontal / vertical scale (glyph cell 6*sx wide, 7*sy high). */
+int gfx_text_xy(int x, int y, const char *s, int sx, int sy, color_t c);
 void gfx_text_centered(int cx, int y, const char *s, int scale, color_t c);
 /* Largest scale (<= max_scale) at which s fits into max_w. */
 int gfx_fit_scale(const char *s, int max_w, int max_scale);

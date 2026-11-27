@@ -164,7 +164,7 @@
 
   <section class="card" id="display-card">
     <h2>Display</h2>
-    <div class="muted">Backlight intensity. The level is applied while you drag and stored on the device when you release the slider.</div>
+    <div class="muted" id="bl-note">Backlight levels are shown on the panel while you drag; all settings are stored when you press Save.</div>
     <fieldset class="ed" disabled>
     <div class="slider">
       <label for="bl">Brightness</label>
@@ -182,17 +182,54 @@
       <span class="muted">minutes without an agent event the backlight drops to the dimmed level (0 = never); never while an agent waits for you. <span id="bl-dimmed"></span></span>
     </div>
     <div class="slider" style="grid-template-columns:auto auto 1fr">
-      <label for="sb-min">Off after</label>
+      <label for="sb-min">Standby after</label>
       <input type="number" id="sb-min" min="0" max="240" step="1" value="15" style="width:5.5em">
-      <span class="muted">minutes with all agents offline the display and LED switch off to save power (0 = never); an agent event or a button press switches them on. <span id="sb-state"></span></span>
+      <span class="muted">minutes with all agents offline the device enters standby to save power (0 = never); an agent event or a button press ends it. <span id="sb-state"></span></span>
+    </div>
+    <div class="slider" style="grid-template-columns:auto auto 1fr">
+      <label for="sb-clock">In standby</label>
+      <select id="sb-clock" style="width:auto"><option value="0">Display off</option><option value="1">Show date and time</option></select>
+      <span class="muted">the LED is off either way; the clock uses the dimmed level and the time zone from the Clock card.</span>
     </div>
     <div class="slider" style="grid-template-columns:auto auto 1fr">
       <label for="rot">Rotation</label>
       <select id="rot" style="width:auto"><option value="0">0°</option><option value="180">180°</option></select>
       <span class="muted">turns the picture upside down, e.g. for mounting the device the other way round.</span>
     </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" type="button" id="d-save">Save</button>
+      <button type="button" id="d-discard" hidden>Discard changes</button>
+    </div>
     </fieldset>
     <div class="err" id="bl-err"></div>
+  </section>
+
+  <section class="card" id="clock-card">
+    <h2>Clock</h2>
+    <div class="muted" id="c-now">&nbsp;</div>
+    <fieldset class="ed" disabled>
+    <form class="ota" id="clock" style="margin-top:12px">
+      <div>
+        <label for="c-server">NTP server</label>
+        <input id="c-server" maxlength="63" required pattern="[A-Za-z0-9.\-_:]+" placeholder="pool.ntp.org" autocomplete="off">
+      </div>
+      <div>
+        <label for="c-zone">Time zone</label>
+        <select id="c-zone"></select>
+      </div>
+      <div class="wide" id="c-custom-row" hidden>
+        <label for="c-tz">POSIX TZ string</label>
+        <input id="c-tz" maxlength="63" placeholder="CET-1CEST,M3.5.0,M10.5.0/3" autocomplete="off">
+        <div class="muted" style="margin-top:4px">The offset is positive west of Greenwich (UTC+1 = <code>-1</code>), e.g. <code>&lt;+0545&gt;-5:45</code> or <code>EST5EDT,M3.2.0,M11.1.0</code>.</div>
+      </div>
+      <div class="wide"><label class="check"><input type="checkbox" id="c-h24"> 24-hour format</label></div>
+      <div class="wide row">
+        <button class="primary" type="submit">Save</button>
+        <button type="button" id="c-browser" hidden></button>
+      </div>
+    </form>
+    </fieldset>
+    <div class="err" id="c-err"></div>
   </section>
 
   <section class="card">
@@ -571,76 +608,161 @@ $('off-min').addEventListener('change', async () => {
 });
 
 /* ---------- display ---------- */
-let blTimer = null, blPending = false;
+/* Nothing is stored until Save. The two backlight sliders preview their level on the panel while
+ * dragged (preview:true, not stored); Discard (or leaving the page) restores the stored levels. */
+let dispSaved = null, dispDirty = false;
 function showBl(v) { $('bl').value = v; $('bl-val').textContent = v + '%'; }
-function showDim(d) {
-  if (document.activeElement !== $('bl-dim')) $('bl-dim').value = d.dim_timeout_min;
+function showDl(v) { $('bl-dl').value = v; $('bl-dl-val').textContent = v + '%'; }
+function showDisplayState(d) {
   $('bl-dimmed').textContent = d.dimmed ? 'Currently dimmed.' : '';
-  if ('standby_timeout_min' in d && document.activeElement !== $('sb-min')) $('sb-min').value = d.standby_timeout_min;
-  $('sb-state').textContent = d.standby ? 'Currently off.' : '';
+  $('sb-state').textContent = d.standby ? 'Currently in standby.' : '';
+}
+function setDispDirty(on) { dispDirty = on; $('d-discard').hidden = !on; }
+function renderDisplay(d) {
+  showDisplayState(d);
+  if (dispDirty) return;
+  dispSaved = d;
+  showBl(d.brightness);
+  showDl(d.dim_brightness);
+  $('bl-dim').value = d.dim_timeout_min;
+  $('sb-min').value = d.standby_timeout_min;
+  $('sb-clock').value = d.standby_clock ? '1' : '0';
+  $('rot').value = d.rotation;
+  $('bl').disabled = $('bl-dl').disabled = $('bl-dim').disabled = !d.adjustable;
+  if (!d.adjustable) $('bl-note').textContent = 'This board has no controllable backlight. Settings are stored when you press Save.';
 }
 async function loadDisplay() {
-  try {
-    const d = await api('GET', '/api/display');
-    showBl(d.brightness);
-    showDim(d);
-    $('rot').value = d.rotation;
-    showDl(d.dim_brightness);
-    $('bl').disabled = $('bl-dl').disabled = $('bl-dim').disabled = !d.adjustable;
-    if (!d.adjustable) $('display-card').querySelector('.muted').textContent = 'This board has no controllable backlight.';
-  } catch (e) {}
+  try { renderDisplay(await api('GET', '/api/display')); } catch (e) {}
 }
-async function setBl(preview) {
-  if (blPending) { if (preview) return; }
-  blPending = true;
+/* live preview of a backlight level while a slider is dragged (throttled, one request at a time) */
+function previewer(field, input) {
+  let timer = null, pending = false;
+  return () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (pending) return;
+      pending = true;
+      try { await api('POST', '/api/display', { [field]: +$(input).value, preview: true }); } catch (err) { $('bl-err').textContent = err.message; }
+      finally { pending = false; }
+    }, 120);
+  };
+}
+const previewBl = previewer('brightness', 'bl'), previewDl = previewer('dim_brightness', 'bl-dl');
+$('bl').addEventListener('input', () => { $('bl-val').textContent = $('bl').value + '%'; setDispDirty(true); previewBl(); });
+$('bl-dl').addEventListener('input', () => { $('bl-dl-val').textContent = $('bl-dl').value + '%'; setDispDirty(true); previewDl(); });
+['bl-dim', 'sb-min', 'sb-clock', 'rot'].forEach(id => {
+  $(id).addEventListener('input', () => setDispDirty(true));
+  $(id).addEventListener('change', () => setDispDirty(true));
+});
+function clampInput(id, max) { const v = Math.min(max, Math.max(0, Math.round(+$(id).value || 0))); $(id).value = v; return v; }
+$('d-save').onclick = async () => {
+  $('bl-err').textContent = '';
   try {
-    const d = await api('POST', '/api/display', { brightness:+$('bl').value, preview });
-    if (!preview) { showBl(d.brightness); $('bl-err').textContent = ''; }
+    const d = await api('POST', '/api/display', {
+      brightness: +$('bl').value, dim_brightness: +$('bl-dl').value,
+      dim_timeout_min: clampInput('bl-dim', 60), standby_timeout_min: clampInput('sb-min', 240),
+      standby_clock: $('sb-clock').value === '1', rotation: +$('rot').value });
+    setDispDirty(false);
+    renderDisplay(d);
+    $('bl-err').textContent = 'Saved'; $('bl-err').style.color = 'var(--idle)';
+    setTimeout(() => { $('bl-err').textContent = ''; $('bl-err').style.color = ''; }, 2000);
   } catch (err) { $('bl-err').textContent = err.message; }
-  finally { blPending = false; }
+};
+/* put the stored backlight levels back on the panel (the other fields were never sent) */
+function restoreBacklight(keepalive) {
+  if (!dispSaved) return;
+  const body = JSON.stringify({ brightness: dispSaved.brightness, dim_brightness: dispSaved.dim_brightness });
+  return fetch('/api/display', { method:'POST', headers:{'Content-Type':'application/json'}, body, keepalive });
 }
-$('bl').addEventListener('input', () => {
-  $('bl-val').textContent = $('bl').value + '%';
-  clearTimeout(blTimer);
-  blTimer = setTimeout(() => setBl(true), 120);
-});
-$('bl').addEventListener('change', () => { clearTimeout(blTimer); setBl(false); });
-/* dimmed level: shown on the panel while dragging, stored on release (panel returns to normal) */
-let dlTimer = null, dlPending = false;
-function showDl(v) { $('bl-dl').value = v; $('bl-dl-val').textContent = v + '%'; }
-async function setDl(preview) {
-  if (dlPending && preview) return;
-  dlPending = true;
+$('d-discard').onclick = async () => {
+  $('bl-err').textContent = '';
+  try { await restoreBacklight(false); } catch (e) {}
+  setDispDirty(false);
+  loadDisplay();
+};
+window.addEventListener('pagehide', () => { if (dispDirty) restoreBacklight(true); });
+
+/* ---------- clock ---------- */
+/* IANA zone -> POSIX TZ rule (current rules; the device has no zone database) */
+const ZONES = [
+  ['UTC', 'UTC0'],
+  ['Europe/London', 'GMT0BST,M3.5.0/1,M10.5.0'], ['Europe/Dublin', 'IST-1GMT0,M10.5.0,M3.5.0/1'],
+  ['Europe/Lisbon', 'WET0WEST,M3.5.0/1,M10.5.0'], ['Atlantic/Reykjavik', 'GMT0'],
+  ['Atlantic/Azores', '<-01>1<+00>,M3.5.0/0,M10.5.0/1'], ['Atlantic/Canary', 'WET0WEST,M3.5.0/1,M10.5.0'],
+  ['Europe/Amsterdam', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Berlin', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Brussels', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Budapest', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Copenhagen', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Madrid', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Oslo', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Paris', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Prague', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Rome', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Stockholm', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Vienna', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Warsaw', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Zurich', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Belgrade', 'CET-1CEST,M3.5.0,M10.5.0/3'], ['Europe/Zagreb', 'CET-1CEST,M3.5.0,M10.5.0/3'],
+  ['Europe/Athens', 'EET-2EEST,M3.5.0/3,M10.5.0/4'], ['Europe/Bucharest', 'EET-2EEST,M3.5.0/3,M10.5.0/4'],
+  ['Europe/Helsinki', 'EET-2EEST,M3.5.0/3,M10.5.0/4'], ['Europe/Kyiv', 'EET-2EEST,M3.5.0/3,M10.5.0/4'],
+  ['Europe/Riga', 'EET-2EEST,M3.5.0/3,M10.5.0/4'], ['Europe/Sofia', 'EET-2EEST,M3.5.0/3,M10.5.0/4'],
+  ['Europe/Tallinn', 'EET-2EEST,M3.5.0/3,M10.5.0/4'], ['Europe/Vilnius', 'EET-2EEST,M3.5.0/3,M10.5.0/4'],
+  ['Europe/Istanbul', '<+03>-3'], ['Europe/Minsk', '<+03>-3'], ['Europe/Moscow', 'MSK-3'],
+  ['Africa/Casablanca', '<+01>-1'], ['Africa/Lagos', 'WAT-1'], ['Africa/Cairo', 'EET-2EEST,M4.5.5/0,M10.5.4/24'],
+  ['Africa/Johannesburg', 'SAST-2'], ['Africa/Nairobi', 'EAT-3'], ['Asia/Jerusalem', 'IST-2IDT,M3.4.4/26,M10.5.0'],
+  ['Asia/Riyadh', '<+03>-3'], ['Asia/Tehran', '<+0330>-3:30'], ['Asia/Dubai', '<+04>-4'],
+  ['Asia/Karachi', 'PKT-5'], ['Asia/Tashkent', '<+05>-5'], ['Asia/Kolkata', 'IST-5:30'], ['Asia/Kathmandu', '<+0545>-5:45'],
+  ['Asia/Dhaka', '<+06>-6'], ['Asia/Bangkok', '<+07>-7'], ['Asia/Ho_Chi_Minh', '<+07>-7'], ['Asia/Jakarta', 'WIB-7'],
+  ['Asia/Shanghai', 'CST-8'], ['Asia/Hong_Kong', 'HKT-8'], ['Asia/Singapore', '<+08>-8'], ['Asia/Taipei', 'CST-8'],
+  ['Asia/Manila', 'PST-8'], ['Australia/Perth', 'AWST-8'], ['Asia/Seoul', 'KST-9'], ['Asia/Tokyo', 'JST-9'],
+  ['Australia/Darwin', 'ACST-9:30'], ['Australia/Adelaide', 'ACST-9:30ACDT,M10.1.0,M4.1.0/3'],
+  ['Australia/Brisbane', 'AEST-10'], ['Australia/Sydney', 'AEST-10AEDT,M10.1.0,M4.1.0/3'],
+  ['Australia/Melbourne', 'AEST-10AEDT,M10.1.0,M4.1.0/3'], ['Australia/Hobart', 'AEST-10AEDT,M10.1.0,M4.1.0/3'],
+  ['Pacific/Auckland', 'NZST-12NZDT,M9.5.0,M4.1.0/3'], ['Pacific/Honolulu', 'HST10'],
+  ['America/Anchorage', 'AKST9AKDT,M3.2.0,M11.1.0'], ['America/Los_Angeles', 'PST8PDT,M3.2.0,M11.1.0'],
+  ['America/Vancouver', 'PST8PDT,M3.2.0,M11.1.0'], ['America/Phoenix', 'MST7'], ['America/Denver', 'MST7MDT,M3.2.0,M11.1.0'],
+  ['America/Chicago', 'CST6CDT,M3.2.0,M11.1.0'], ['America/Mexico_City', 'CST6'], ['America/New_York', 'EST5EDT,M3.2.0,M11.1.0'],
+  ['America/Toronto', 'EST5EDT,M3.2.0,M11.1.0'], ['America/Bogota', '<-05>5'], ['America/Lima', '<-05>5'],
+  ['America/Halifax', 'AST4ADT,M3.2.0,M11.1.0'], ['America/Santiago', '<-04>4<-03>,M9.1.6/24,M4.1.6/24'],
+  ['America/St_Johns', 'NST3:30NDT,M3.2.0,M11.1.0'], ['America/Sao_Paulo', '<-03>3'],
+  ['America/Argentina/Buenos_Aires', '<-03>3'],
+];
+const ZONE_TZ = Object.fromEntries(ZONES);
+let clockDirty = false;
+(function fillZones() {
+  const sel = $('c-zone');
+  ZONES.forEach(([name]) => sel.append(el('option', { value:name, textContent:name.replace(/_/g, ' ') })));
+  sel.append(el('option', { value:'', textContent:'Custom (POSIX TZ string)...' }));
+  const browser = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (browser && ZONE_TZ[browser]) {
+    $('c-browser').textContent = "Use this browser's zone (" + browser.replace(/_/g, ' ') + ')';
+    $('c-browser').dataset.zone = browser;
+  }
+})();
+function clockZoneChanged() { $('c-custom-row').hidden = $('c-zone').value !== ''; }
+function renderClock(c) {
+  $('c-now').textContent = c.valid
+    ? 'Device time: ' + c.local + (c.since_sync_s >= 0 ? ' · synchronized ' + dur(Math.max(60, c.since_sync_s)) + ' ago' : ' · not synchronized since restart')
+    : 'Time not synchronized yet (needs Wi-Fi and a reachable NTP server).';
+  if (clockDirty) return;
+  $('c-server').value = c.server;
+  $('c-zone').value = c.tz_name && ZONE_TZ[c.tz_name] === c.tz ? c.tz_name : '';
+  $('c-tz').value = c.tz;
+  $('c-h24').checked = c.h24;
+  clockZoneChanged();
+  $('c-browser').hidden = !$('c-browser').dataset.zone || $('c-browser').dataset.zone === $('c-zone').value;
+}
+async function loadClock() { try { renderClock(await api('GET', '/api/clock')); } catch (e) {} }
+$('c-zone').addEventListener('change', () => { if ($('c-zone').value) $('c-tz').value = ZONE_TZ[$('c-zone').value]; clockZoneChanged(); });
+$('clock').addEventListener('input', () => { clockDirty = true; });
+$('c-browser').onclick = () => { $('c-zone').value = $('c-browser').dataset.zone; $('c-zone').dispatchEvent(new Event('change')); clockDirty = true; };
+$('clock').onsubmit = async (e) => {
+  e.preventDefault();
+  $('c-err').textContent = '';
+  const zone = $('c-zone').value;
   try {
-    const d = await api('POST', '/api/display', { dim_brightness:+$('bl-dl').value, preview });
-    if (!preview) { showDl(d.dim_brightness); showDim(d); $('bl-err').textContent = ''; }
-  } catch (err) { $('bl-err').textContent = err.message; }
-  finally { dlPending = false; }
-}
-$('bl-dl').addEventListener('input', () => {
-  $('bl-dl-val').textContent = $('bl-dl').value + '%';
-  clearTimeout(dlTimer);
-  dlTimer = setTimeout(() => setDl(true), 120);
-});
-$('bl-dl').addEventListener('change', () => { clearTimeout(dlTimer); setDl(false); });
-$('bl-dim').addEventListener('change', async () => {
-  const v = Math.min(60, Math.max(0, Math.round(+$('bl-dim').value || 0)));
-  $('bl-dim').value = v;
-  try { showDim(await api('POST', '/api/display', { dim_timeout_min:v })); $('bl-err').textContent = ''; }
-  catch (err) { $('bl-err').textContent = err.message; }
-});
-
-$('sb-min').addEventListener('change', async () => {
-  const v = Math.min(240, Math.max(0, Math.round(+$('sb-min').value || 0)));
-  $('sb-min').value = v;
-  try { showDim(await api('POST', '/api/display', { standby_timeout_min:v })); $('bl-err').textContent = ''; }
-  catch (err) { $('bl-err').textContent = err.message; }
-});
-
-$('rot').addEventListener('change', async () => {
-  try { $('rot').value = (await api('POST', '/api/display', { rotation:+$('rot').value })).rotation; $('bl-err').textContent = ''; }
-  catch (err) { $('bl-err').textContent = err.message; }
-});
+    const c = await api('POST', '/api/clock', { server:$('c-server').value.trim(), tz: zone ? ZONE_TZ[zone] : $('c-tz').value.trim(),
+      tz_name: zone, h24:$('c-h24').checked });
+    clockDirty = false;
+    renderClock(c);
+    $('c-err').textContent = 'Saved'; $('c-err').style.color = 'var(--idle)';
+    setTimeout(() => { $('c-err').textContent = ''; $('c-err').style.color = ''; }, 2000);
+  } catch (err) { $('c-err').textContent = err.message; }
+};
 
 function dur(s) { return s < 3600 ? Math.max(1, Math.round(s / 60)) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days'; }
 
@@ -722,8 +844,9 @@ $('ev').addEventListener('toggle', loadEvents);
 setInterval(loadEvents, 2000);
 
 api('GET', '/api/session').then(s => { $('hold-s').textContent = s.hold_s; $('idle-min').textContent = s.timeout_min; }).catch(() => {});
-refresh().then(loadStatus).then(loadOta).then(loadWifi).then(loadDisplay);
+refresh().then(loadStatus).then(loadOta).then(loadWifi).then(loadDisplay).then(loadClock);
 setInterval(loadWifi, 30000);
+setInterval(loadClock, 10000);
 setInterval(loadDisplay, 30000);
 setInterval(refresh, 2000);
 setInterval(loadStatus, 30000);

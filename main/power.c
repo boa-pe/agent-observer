@@ -7,6 +7,8 @@
 #include "esp_clk_tree.h"
 #include "settings.h"
 #include "ui.h"
+#include "clock.h"
+#include "wifi_mgr.h"
 
 static const char *TAG = "power";
 
@@ -21,6 +23,11 @@ static volatile bool s_wake_req;
 static int64_t s_all_off_since;   /* 0 = some agent is not offline */
 static int64_t s_hold_until;      /* no standby before this time (manual wake) */
 static TaskHandle_t s_tick_task;
+static bool s_first_tick = true;
+/* At boot every agent is offline: with the standby clock, start in standby right away instead of
+ * waiting for the timeout, but only once Wi-Fi is connected (the boot screen shows the connection
+ * progress, and the clock needs NTP). Ends with the first agent activity or a manual wake. */
+static bool s_boot_standby;
 
 static uint8_t clamp_timeout(int minutes)
 {
@@ -60,14 +67,27 @@ void power_tick(const agents_snapshot_t *s)
     if (s_wake_req) {
         s_wake_req = false;
         s_hold_until = now + WAKE_GRACE_US;
+        s_boot_standby = false; /* from now on the normal timeout applies */
     }
     bool all_off = true;
     for (int i = 0; i < s->count && all_off; i++) all_off = s->agents[i].state == AGENT_STATE_OFFLINE;
-    if (!all_off) s_all_off_since = 0;
-    else if (!s_all_off_since) s_all_off_since = now;
+    if (s_first_tick) {
+        s_first_tick = false;
+        /* not without agents: the screen then explains how to add them */
+        s_boot_standby = all_off && s->count > 0 && clock_standby_enabled();
+        if (s_boot_standby) ESP_LOGI(TAG, "all agents offline at boot: standby clock once Wi-Fi is up");
+    }
+    if (!all_off) {
+        s_all_off_since = 0;
+        s_boot_standby = false;
+    } else if (!s_all_off_since) {
+        s_all_off_since = now;
+    }
 
+    /* entering boot standby waits for Wi-Fi; a later link drop doesn't end it */
+    const bool boot_sb = s_boot_standby && (s_standby || wifi_mgr_connected());
     const bool want = s_timeout_min > 0 && all_off && now >= s_hold_until &&
-                      now - s_all_off_since >= (int64_t)s_timeout_min * 60 * 1000000;
+                      (boot_sb || now - s_all_off_since >= (int64_t)s_timeout_min * 60 * 1000000);
     if (want == s_standby) return;
     s_standby = want;
     if (want) {

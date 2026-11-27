@@ -7,6 +7,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -16,9 +17,12 @@
 #include "wifi_mgr.h"
 #include "power.h"
 #include "web_server.h"
+#include "clock.h"
 
 #define TWO_PI 6.2831853f
 #define FRAME_MS 40
+#define CLOCK_STEP_MS 200   /* standby clock: seconds ring resolution and redraw period */
+#define CLOCK_STEPS_PER_MIN (60 * 1000 / CLOCK_STEP_MS)
 
 /* ---------- palette ---------- */
 #define C_BG_TOP    RGB(0x0B, 0x10, 0x20)
@@ -39,6 +43,9 @@ static agents_snapshot_t s_snap; /* refreshed once per frame */
 static char s_ip[20];
 static bool s_connected;
 static TaskHandle_t s_task;
+static struct tm s_clock_tm; /* standby clock: local time of the current frame */
+static bool s_clock_ok;
+static int s_clock_usec;     /* microseconds within s_clock_tm's second */
 
 void ui_wake(void)
 {
@@ -682,18 +689,164 @@ static void draw_message(uint32_t t)
     }
 }
 
+/* ISO 8601 weeks: a year has 53 when it starts on a Thursday, or on a Wednesday in a leap year. */
+static int iso_weeks_in_year(int y)
+{
+    int p = (y + y / 4 - y / 100 + y / 400) % 7;
+    int q = ((y - 1) + (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400) % 7;
+    return p == 4 || q == 3 ? 53 : 52;
+}
+
+/* ISO 8601 week number (weeks start on Monday; week 1 contains the year's first Thursday). */
+static int iso_week(const struct tm *t)
+{
+    const int year = t->tm_year + 1900;
+    const int wd = t->tm_wday ? t->tm_wday : 7; /* Monday = 1 .. Sunday = 7 */
+    const int w = (t->tm_yday + 1 - wd + 10) / 7;
+    if (w < 1) return iso_weeks_in_year(year - 1);
+    if (w > iso_weeks_in_year(year)) return 1;
+    return w;
+}
+
+/* Seconds ring: faint full track, white arc growing clockwise from 12 o'clock in CLOCK_STEP_MS steps
+ * (step = steps elapsed in the current minute; drawn with round strokes so the segments join smoothly),
+ * and a dot at its head. */
+static void draw_seconds_ring(int cx, int cy, int r, int th, bool ok, int step)
+{
+    gfx_ring(cx, cy, r, r - th, gfx_mix(C_BG_BOT, C_WHITE, 40));
+    if (!ok) return;
+    const float rm = r - th / 2.0f;
+    int px = cx, py = cy - (int)lrintf(rm);
+    for (int i = 1; i <= step; i++) {
+        const float a = i * (TWO_PI / CLOCK_STEPS_PER_MIN);
+        const int x = cx + (int)lrintf(rm * sinf(a)), y = cy - (int)lrintf(rm * cosf(a));
+        gfx_thick_line(px, py, x, y, th, C_WHITE);
+        px = x;
+        py = y;
+    }
+    gfx_fill_circle(px, py, th / 2 + 2, C_WHITE);
+}
+
+/* Clock digits "HH:MM": font pixels sx wide and sy tall (sy > sx gives tall, narrow digits), with a
+ * compact colon: square dots of the digit stroke width and one unit of space on each side, instead
+ * of the font's wide ':' cell. 25 units (of sx) wide, 7 units (of sy) high. */
+#define CLOCK_TIME_UNITS_W 25
+static void draw_clock_time(int cx, int y, const char *hh, const char *mm, int sx, int sy, color_t c)
+{
+    const int x0 = cx - CLOCK_TIME_UNITS_W * sx / 2;
+    const int colon_x = x0 + 12 * sx;  /* "HH" is 11 units, then one unit of space */
+    gfx_text_xy(x0, y, hh, sx, sy, c);
+    gfx_fill_rect(colon_x, y + 2 * sy + (sy - sx) / 2, sx, sx, c); /* centred on font rows 2 and 4 */
+    gfx_fill_rect(colon_x, y + 4 * sy + (sy - sx) / 2, sx, sx, c);
+    gfx_text_xy(colon_x + 2 * sx, y, mm, sx, sy, c);
+}
+
+/* Standby clock: HH:MM inside a seconds ring, with the weekday, the date and the calendar week below it
+ * (portrait) or beside it (landscape). Everything in white. */
+static void draw_clock(uint32_t t)
+{
+    static const char *const WDAY[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+    static const char *const MON[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    draw_background();
+    const struct tm tm = s_clock_tm; /* one snapshot per frame: all bands show the same time */
+    const bool ok = s_clock_ok;
+    char hh[4] = "--", mm[4] = "--", ampm[4] = "";
+    if (ok) {
+        int h = tm.tm_hour;
+        if (!clock_24h()) {
+            strlcpy(ampm, h < 12 ? "AM" : "PM", sizeof(ampm));
+            h %= 12;
+            if (h == 0) h = 12;
+        }
+        snprintf(hh, sizeof(hh), "%02d", h);
+        snprintf(mm, sizeof(mm), "%02d", tm.tm_min);
+    }
+    const bool landscape = DISP_W > DISP_H;
+    const int small = DISP_W >= 160 ? 2 : 1;
+    /* text below / beside the ring: weekday, date, calendar week */
+    const int text_h = 7 * (small + 1) + 8 + 7 * small + 6 + 7 * small;
+
+    int r, cx, cy, tx, ty, tw;
+    if (landscape) {
+        r = DISP_H / 2 - 4;
+        if (r > DISP_W / 4 - 4) r = DISP_W / 4 - 4;
+        cx = DISP_W / 4;
+        cy = DISP_H / 2;
+        tx = DISP_W * 3 / 4;
+        tw = DISP_W / 2 - 8;
+        ty = (DISP_H - text_h) / 2;
+    } else {
+        r = DISP_W / 2 - 4;
+        const int max_r = (DISP_H - 8 - 12 - text_h) / 2;
+        if (r > max_r) r = max_r;
+        const int top = (DISP_H - (2 * r + 12 + text_h)) / 2;
+        cx = DISP_W / 2;
+        cy = top + r;
+        tx = DISP_W / 2;
+        tw = DISP_W - 8;
+        ty = cy + r + 12;
+    }
+    int th = r / 14;
+    if (th < 3) th = 3;
+    const int step = ok ? (tm.tm_sec * 1000 + s_clock_usec / 1000) / CLOCK_STEP_MS : 0;
+    draw_seconds_ring(cx, cy, r, th, ok, step);
+
+    /* widest time that fits inside the ring with a small margin, then as tall as fits (up to twice
+     * the pixel width, so the digits look tall rather than built from square blocks) */
+    const int ri = r - th - 2;
+    int sx = 16, sy = 1;
+    for (; sx > 1; sx--) {
+        const int hw = CLOCK_TIME_UNITS_W * sx / 2;
+        if (hw * hw + (7 * sx / 2) * (7 * sx / 2) <= ri * ri) break;
+    }
+    for (sy = 2 * sx; sy > sx; sy--) {
+        const int hw = CLOCK_TIME_UNITS_W * sx / 2, hh2 = 7 * sy / 2;
+        if (hw * hw + hh2 * hh2 <= ri * ri) break;
+    }
+    draw_clock_time(cx, cy - 7 * sy / 2, hh, mm, sx, sy, C_WHITE);
+
+    int y = ty;
+    if (ok) {
+        char line[40];
+        if (ampm[0]) {
+            snprintf(line, sizeof(line), "%s  %s", ampm, WDAY[tm.tm_wday]);
+        } else {
+            strlcpy(line, WDAY[tm.tm_wday], sizeof(line));
+        }
+        int ls = gfx_fit_scale(line, tw, small + 1);
+        gfx_text_centered(tx, y, line, ls, C_WHITE);
+        y += 7 * ls + 8;
+        snprintf(line, sizeof(line), "%d %s %d", tm.tm_mday, MON[tm.tm_mon], tm.tm_year + 1900);
+        ls = gfx_fit_scale(line, tw, small);
+        gfx_text_centered(tx, y, line, ls, C_WHITE);
+        y += 7 * ls + 6;
+        snprintf(line, sizeof(line), "CW %d", iso_week(&tm));
+        gfx_text_centered(tx, y, line, small, C_WHITE);
+    } else {
+        text_wrapped(tx, y, tw, s_connected ? "Waiting for time from the NTP server" : "No Wi-Fi: time unknown", 1, C_WHITE);
+    }
+    if (!s_connected && ok) gfx_text_centered(tx, DISP_H - 10, "NO WI-FI", 1, C_WHITE);
+    (void)t;
+}
+
 static void ui_task(void *arg)
 {
     const int64_t t0 = esp_timer_get_time();
     TickType_t last = xTaskGetTickCount();
     bool first = true;
     bool panel_off = false;
+    bool clock_shown = false;
     for (;;) {
-        /* standby: panel and backlight off, no rendering; only the monitor screen sleeps
-         * (boot, setup and messages always show) */
-        if (s_mode == UI_MODE_NORMAL && power_in_standby()) {
+        /* standby: only the monitor screen sleeps (boot, setup and messages always show).
+         * Either the panel and backlight switch off (no rendering), or the clock is shown
+         * at the dimmed level and redrawn every CLOCK_STEP_MS. */
+        const bool standby = s_mode == UI_MODE_NORMAL && power_in_standby();
+        const bool show_clock = standby && clock_standby_enabled();
+        if (standby && !show_clock) {
             if (!panel_off) {
                 display_set_power(false);
+                display_force_dim(false);
+                clock_shown = false;
                 panel_off = true;
             }
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
@@ -702,18 +855,25 @@ static void ui_task(void *arg)
         }
         if (panel_off) {
             display_set_power(true);
-            display_activity(); /* wake at full brightness, restart the dim countdown */
             panel_off = false;
             first = true;       /* backlight on after the first fresh frame */
+        }
+        if (show_clock != clock_shown) {
+            display_force_dim(show_clock);
+            if (!show_clock) display_activity(); /* leaving standby: full brightness, restart the dim countdown */
+            clock_shown = show_clock;
+        } else if (first && !show_clock) {
+            display_activity();
         }
         uint32_t t = (uint32_t)((esp_timer_get_time() - t0) / 1000);
         agents_snapshot(&s_snap);
         bool waiting = false; /* never dim while an agent needs user input */
         for (int i = 0; i < s_snap.count && !waiting; i++) waiting = s_snap.agents[i].state == AGENT_STATE_WAITING;
-        display_dim_tick(waiting);
+        if (!show_clock) display_dim_tick(waiting);
         s_connected = wifi_mgr_connected();
         wifi_mgr_get_ip(s_ip, sizeof(s_ip));
         ui_mode_t mode = s_mode;
+        if (show_clock) s_clock_ok = clock_localtime(&s_clock_tm, &s_clock_usec);
         display_frame_begin();
 
         for (int y0 = 0; y0 < DISP_H; y0 += DISP_BAND_LINES) {
@@ -724,7 +884,7 @@ static void ui_task(void *arg)
             case UI_MODE_BOOT:     draw_boot(t); break;
             case UI_MODE_SETUP_AP: draw_setup(t); break;
             case UI_MODE_MESSAGE:  draw_message(t); break;
-            default:               draw_normal(t); break;
+            default:               if (show_clock) draw_clock(t); else draw_normal(t); break;
             }
             display_flush_band(buf, y0, lines);
         }
@@ -733,6 +893,14 @@ static void ui_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(30));
             display_backlight(true);
             first = false;
+        }
+        if (show_clock) {
+            /* next redraw just after the next ring step (or earlier on ui_wake) */
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CLOCK_STEP_MS - (tv.tv_usec / 1000) % CLOCK_STEP_MS + 5));
+            last = xTaskGetTickCount();
+            continue;
         }
         /* keep the frame rate, but always yield a little so lower-priority tasks run */
         TickType_t spent = xTaskGetTickCount() - last;

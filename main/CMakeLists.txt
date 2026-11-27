@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS "main.c" "settings.c" "power.c" "agents.c" "button.c" "status_led.c"
-         "display.c" "gfx.c" "font5x7.c" "ui.c"
+         "display.c" "gfx.c" "font5x7.c" "ui.c" "clock.c"
          "wifi_mgr.c" "dns_server.c" "web_server.c" "ota.c"
     INCLUDE_DIRS "."
     EMBED_TXTFILES "web/index.html" "web/setup.html"
