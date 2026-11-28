@@ -1,6 +1,7 @@
 #pragma once
 /*
- * Wall clock: time from an NTP server (SNTP, re-synchronized hourly) shown in a selectable
+ * Wall clock: time from an NTP server (SNTP, re-synchronized hourly, also in standby; while a
+ * sync is missing or failing it is retried every 30 s) shown in a selectable
  * time zone. In standby the display can show the date and time (dimmed) instead of switching off.
  *
  * Settings (NVS, defaults from Kconfig): NTP server host name, time zone as a POSIX TZ string plus

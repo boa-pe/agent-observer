@@ -15,6 +15,7 @@
   label { display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; }
   input { width:100%; padding:12px; border-radius:10px; border:1px solid var(--line); background:#0f1424; color:var(--text); font-size:16px; }
   button { width:100%; padding:13px; border:0; border-radius:10px; background:var(--acc); color:#1b1400; font-weight:700; font-size:16px; margin-top:16px; cursor:pointer; }
+  button:disabled { background:#3a4258; color:var(--muted); cursor:default; }
   button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); font-weight:500; margin-top:8px; padding:9px; font-size:14px; }
   ul { list-style:none; margin:0; padding:0; max-height:280px; overflow:auto; }
   li { display:flex; justify-content:space-between; align-items:center; padding:11px 8px; border-bottom:1px solid var(--line); cursor:pointer; border-radius:8px; }
@@ -56,7 +57,7 @@
     <input id="pw" type="password" maxlength="63" autocomplete="off">
     <div class="row" style="margin-top:8px"><input type="checkbox" id="show"><label for="show" style="margin:0">Show password</label></div>
     <div class="row" style="margin-top:8px"><input type="checkbox" id="pref"><label for="pref" style="margin:0">Preferred network</label></div>
-    <button type="submit">Save &amp; connect</button>
+    <button type="submit" id="save" disabled>Save &amp; connect</button>
     <div class="msg" id="msg"></div>
   </form>
 </main>
@@ -84,6 +85,7 @@ async function scan(refresh) {
         li.classList.add('sel');
         $('ssid').value = n.ssid;
         $('pw').value = '';
+        updSave();
         if (n.secure) $('pw').focus();
       };
       ul.append(li);
@@ -92,6 +94,8 @@ async function scan(refresh) {
     $('list').innerHTML = '<li style="cursor:default;color:var(--err)">Scan failed</li>';
   }
 }
+function updSave() { $('save').disabled = !$('ssid').value.trim(); }
+$('ssid').addEventListener('input', updSave);
 $('rescan').onclick = () => scan(true);
 $('show').onchange = (e) => { $('pw').type = e.target.checked ? 'text' : 'password'; };
 $('form').onsubmit = async (e) => {

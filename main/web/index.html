@@ -32,6 +32,8 @@
   button:hover { border-color:#3a4766; }
   button.primary { background:var(--waiting); color:#1b1400; border:0; font-weight:700; padding:9px 14px; }
   button.danger:hover { border-color:var(--working); color:var(--working); }
+  button:disabled, button:disabled:hover { cursor:default; opacity:.5; border-color:var(--line); }
+  button.primary:disabled { background:#3a4258; color:var(--muted); opacity:1; }
   input, select { background:#0f1424; border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:100%; }
   form.add { display:grid; grid-template-columns:1.4fr 1fr 1fr auto; gap:8px; align-items:end; }
   form.add label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
@@ -142,7 +144,7 @@
       <div><label for="w-ssid">Network name (SSID)</label><input id="w-ssid" maxlength="32" required autocomplete="off"></div>
       <div><label for="w-pw">Password (empty = open)</label><input id="w-pw" type="password" maxlength="63" autocomplete="new-password"></div>
       <div><label class="check" style="display:flex;gap:6px;align-items:center;margin-bottom:10px"><input type="checkbox" id="w-pref" style="width:auto"> Preferred</label></div>
-      <div><button class="primary" type="submit">Save</button></div>
+      <div><button class="primary" type="submit" id="w-save" disabled>Save</button></div>
     </form>
     </fieldset>
     <div class="err" id="w-err"></div>
@@ -197,7 +199,7 @@
       <span class="muted">turns the picture upside down, e.g. for mounting the device the other way round.</span>
     </div>
     <div class="row" style="margin-top:12px">
-      <button class="primary" type="button" id="d-save">Save</button>
+      <button class="primary" type="button" id="d-save" disabled>Save</button>
       <button type="button" id="d-discard" hidden>Discard changes</button>
     </div>
     </fieldset>
@@ -224,7 +226,7 @@
       </div>
       <div class="wide"><label class="check"><input type="checkbox" id="c-h24"> 24-hour format</label></div>
       <div class="wide row">
-        <button class="primary" type="submit">Save</button>
+        <button class="primary" type="submit" id="c-save" disabled>Save</button>
         <button type="button" id="c-browser" hidden></button>
       </div>
     </form>
@@ -257,7 +259,7 @@
       </div>
       <div class="wide"><label class="check"><input type="checkbox" id="o-auto"> Check at startup and periodically, and install updates automatically</label></div>
       <div class="wide row">
-        <button class="primary" type="submit">Save</button>
+        <button class="primary" type="submit" id="o-save" disabled>Save</button>
         <button type="button" id="o-check">Check now</button>
         <button type="button" id="o-update">Update now</button>
         <button type="button" class="danger" id="o-rollback" hidden>Roll back</button>
@@ -278,7 +280,7 @@
     <select id="e-kind"><option value="claude">Claude Code</option><option value="copilot">GitHub Copilot</option><option value="grok">Grok</option><option value="other">Other</option></select>
     <div class="row" style="margin-top:16px; justify-content:flex-end">
       <button value="cancel" formnovalidate>Cancel</button>
-      <button class="primary" value="ok">Save</button>
+      <button class="primary" value="ok" id="e-save" disabled>Save</button>
     </div>
   </form>
 </dialog>
@@ -371,17 +373,25 @@ async function act(fn) {
   refresh();
 }
 
+let editingOrig = null;
+function updEditSave() {
+  const name = $('e-name').value.trim();
+  $('e-save').disabled = !editingOrig || !name || (name === editingOrig.name && $('e-kind').value === editingOrig.kind);
+}
 function openEdit(a) {
   editing = a.id;
+  editingOrig = { name:a.name, kind:a.kind };
   $('e-name').value = a.name;
   $('e-kind').value = a.kind;
+  updEditSave();
   $('edit').showModal();
 }
+['input', 'change'].forEach(t => $('edit-form').addEventListener(t, updEditSave));
 $('edit').addEventListener('close', () => {
   if ($('edit').returnValue === 'ok' && editing) {
     act(() => api('PUT', '/api/agents/' + editing, { name:$('e-name').value, kind:$('e-kind').value }));
   }
-  editing = null;
+  editing = editingOrig = null;
 });
 
 async function refresh() {
@@ -409,8 +419,9 @@ async function loadStatus() {
     if (!netDirty) {
       $('n-host').value = status.hostname;
       $('n-port').value = status.hook_port || 80;
-      $('n-host').disabled = $('n-port').disabled = $('n-save').disabled = false;
+      $('n-host').disabled = $('n-port').disabled = false;
     }
+    updNetSave();
     renderHook();
   } catch (e) {}
 }
@@ -562,8 +573,12 @@ function renderWifi(j) {
     } });
     box.append(el('div', { className:'agent', style:'grid-template-columns:1fr auto' }, el('div', {}, name, meta), el('div', { className:'actions' }, pref, del)));
   });
-  $('wifi-add').querySelector('button').disabled = j.networks.length >= j.max;
+  wifiFull = j.networks.length >= j.max;
+  updWifiSave();
 }
+let wifiFull = false;
+function updWifiSave() { $('w-save').disabled = wifiFull || !$('w-ssid').value.trim(); }
+$('wifi-add').addEventListener('input', updWifiSave);
 async function wifiCall(url, body) {
   $('w-err').textContent = '';
   try { renderWifi(await api('POST', url, body)); return true; } catch (e) { $('w-err').textContent = e.message; return false; }
@@ -573,6 +588,7 @@ $('wifi-add').onsubmit = async (e) => {
   e.preventDefault();
   if (await wifiCall('/api/wifi/networks', { ssid:$('w-ssid').value, password:$('w-pw').value, preferred:$('w-pref').checked })) {
     $('w-ssid').value = ''; $('w-pw').value = ''; $('w-pref').checked = false;
+    updWifiSave();
   }
 };
 
@@ -583,7 +599,12 @@ let otaTimer = null, otaDirty = false;
 
 /* ---------- network identity ---------- */
 let netDirty = false;
-$('net').addEventListener('input', () => { netDirty = true; });
+function netChanged() {
+  if (!status.hostname) return false;
+  return $('n-host').value.trim().toLowerCase() !== status.hostname || Math.round(+$('n-port').value) !== (status.hook_port || 80);
+}
+function updNetSave() { netDirty = netChanged(); $('n-save').disabled = !netDirty; }
+$('net').addEventListener('input', updNetSave);
 $('net').onsubmit = async (e) => {
   e.preventDefault();
   const hostname = $('n-host').value.trim().toLowerCase(), hook_port = Math.round(+$('n-port').value);
@@ -593,6 +614,7 @@ $('net').onsubmit = async (e) => {
   try {
     const r = await api('POST', '/api/network', { hostname, hook_port });
     netDirty = false;
+    $('n-save').disabled = true;
     if (!r.restart) { $('n-err').textContent = 'No change.'; return; }
     $('n-err').textContent = 'Restarting... this page moves to http://' + hostname + '.local/ in a few seconds.';
     setTimeout(() => { location.href = 'http://' + hostname + '.local/'; }, 9000);
@@ -617,7 +639,15 @@ function showDisplayState(d) {
   $('bl-dimmed').textContent = d.dimmed ? 'Currently dimmed.' : '';
   $('sb-state').textContent = d.standby ? 'Currently in standby.' : '';
 }
-function setDispDirty(on) { dispDirty = on; $('d-discard').hidden = !on; }
+function setDispDirty(on) { dispDirty = on; $('d-discard').hidden = !on; $('d-save').disabled = !on; }
+/* something differs from the stored settings (the previewed backlight equals the slider, so a slider
+ * moved back to its stored value needs no restore either) */
+function dispChanged() {
+  const s = dispSaved;
+  return !!s && (+$('bl').value !== s.brightness || +$('bl-dl').value !== s.dim_brightness ||
+    Math.round(+$('bl-dim').value) !== s.dim_timeout_min || Math.round(+$('sb-min').value) !== s.standby_timeout_min ||
+    ($('sb-clock').value === '1') !== !!s.standby_clock || +$('rot').value !== s.rotation);
+}
 function renderDisplay(d) {
   showDisplayState(d);
   if (dispDirty) return;
@@ -648,11 +678,11 @@ function previewer(field, input) {
   };
 }
 const previewBl = previewer('brightness', 'bl'), previewDl = previewer('dim_brightness', 'bl-dl');
-$('bl').addEventListener('input', () => { $('bl-val').textContent = $('bl').value + '%'; setDispDirty(true); previewBl(); });
-$('bl-dl').addEventListener('input', () => { $('bl-dl-val').textContent = $('bl-dl').value + '%'; setDispDirty(true); previewDl(); });
+$('bl').addEventListener('input', () => { $('bl-val').textContent = $('bl').value + '%'; setDispDirty(dispChanged()); previewBl(); });
+$('bl-dl').addEventListener('input', () => { $('bl-dl-val').textContent = $('bl-dl').value + '%'; setDispDirty(dispChanged()); previewDl(); });
 ['bl-dim', 'sb-min', 'sb-clock', 'rot'].forEach(id => {
-  $(id).addEventListener('input', () => setDispDirty(true));
-  $(id).addEventListener('change', () => setDispDirty(true));
+  $(id).addEventListener('input', () => setDispDirty(dispChanged()));
+  $(id).addEventListener('change', () => setDispDirty(dispChanged()));
 });
 function clampInput(id, max) { const v = Math.min(max, Math.max(0, Math.round(+$(id).value || 0))); $(id).value = v; return v; }
 $('d-save').onclick = async () => {
@@ -738,25 +768,37 @@ function renderClock(c) {
   $('c-now').textContent = c.valid
     ? 'Device time: ' + c.local + (c.since_sync_s >= 0 ? ' · synchronized ' + dur(Math.max(60, c.since_sync_s)) + ' ago' : ' · not synchronized since restart')
     : 'Time not synchronized yet (needs Wi-Fi and a reachable NTP server).';
-  if (clockDirty) return;
-  $('c-server').value = c.server;
-  $('c-zone').value = c.tz_name && ZONE_TZ[c.tz_name] === c.tz ? c.tz_name : '';
-  $('c-tz').value = c.tz;
-  $('c-h24').checked = c.h24;
-  clockZoneChanged();
-  $('c-browser').hidden = !$('c-browser').dataset.zone || $('c-browser').dataset.zone === $('c-zone').value;
+  clockSaved = { server:c.server, tz:c.tz, tz_name: c.tz_name && ZONE_TZ[c.tz_name] === c.tz ? c.tz_name : '', h24:!!c.h24 };
+  if (!clockDirty) {
+    $('c-server').value = c.server;
+    $('c-zone').value = clockSaved.tz_name;
+    $('c-tz').value = c.tz;
+    $('c-h24').checked = c.h24;
+    clockZoneChanged();
+    $('c-browser').hidden = !$('c-browser').dataset.zone || $('c-browser').dataset.zone === $('c-zone').value;
+  }
+  updClockSave();
+}
+let clockSaved = null;
+function clockForm() {
+  const zone = $('c-zone').value;
+  return { server:$('c-server').value.trim(), tz: zone ? ZONE_TZ[zone] : $('c-tz').value.trim(), tz_name:zone, h24:$('c-h24').checked };
+}
+function updClockSave() {
+  const f = clockForm(), s = clockSaved;
+  clockDirty = !!s && (f.server !== s.server || f.tz !== s.tz || f.tz_name !== s.tz_name || f.h24 !== s.h24);
+  $('c-save').disabled = !clockDirty;
 }
 async function loadClock() { try { renderClock(await api('GET', '/api/clock')); } catch (e) {} }
-$('c-zone').addEventListener('change', () => { if ($('c-zone').value) $('c-tz').value = ZONE_TZ[$('c-zone').value]; clockZoneChanged(); });
-$('clock').addEventListener('input', () => { clockDirty = true; });
-$('c-browser').onclick = () => { $('c-zone').value = $('c-browser').dataset.zone; $('c-zone').dispatchEvent(new Event('change')); clockDirty = true; };
+$('c-zone').addEventListener('change', () => { if ($('c-zone').value) $('c-tz').value = ZONE_TZ[$('c-zone').value]; clockZoneChanged(); updClockSave(); });
+$('clock').addEventListener('input', updClockSave);
+$('clock').addEventListener('change', updClockSave);
+$('c-browser').onclick = () => { $('c-zone').value = $('c-browser').dataset.zone; $('c-zone').dispatchEvent(new Event('change')); };
 $('clock').onsubmit = async (e) => {
   e.preventDefault();
   $('c-err').textContent = '';
-  const zone = $('c-zone').value;
   try {
-    const c = await api('POST', '/api/clock', { server:$('c-server').value.trim(), tz: zone ? ZONE_TZ[zone] : $('c-tz').value.trim(),
-      tz_name: zone, h24:$('c-h24').checked });
+    const c = await api('POST', '/api/clock', clockForm());
     clockDirty = false;
     renderClock(c);
     $('c-err').textContent = 'Saved'; $('c-err').style.color = 'var(--idle)';
@@ -774,6 +816,8 @@ function renderOta(o) {
     if (![...iv.options].some(op => +op.value === c.interval_h)) iv.append(el('option', { value:c.interval_h, textContent:c.interval_h + ' hours' }));
     iv.value = c.interval_h;
   }
+  otaSaved = c;
+  otaDirty = otaChanged();
   $('ota-cur').textContent = 'Running ' + s.project + ' ' + s.current + ' (' + s.target + ', slot ' + s.partition + ')' +
     (s.latest ? ' · latest at source: ' + s.latest : '') +
     (s.last_check_s >= 0 ? ' · checked ' + dur(s.last_check_s) + ' ago' : '') +
@@ -785,7 +829,8 @@ function renderOta(o) {
   $('o-bar').hidden = s.state !== 'downloading';
   $('o-prog').style.width = s.progress + '%';
   const busy = ['checking', 'downloading', 'rebooting'].includes(s.state);
-  $('o-check').disabled = $('o-update').disabled = busy || !c.url || otaDirty;
+  otaBusy = busy;
+  updOtaButtons();
   $('o-update').textContent = s.state === 'available' ? 'Install ' + s.latest : 'Update now';
   const prev = (s.slots || []).find(x => !x.running && x.version && ['valid', 'new'].includes(x.state));
   $('ota-slots').textContent = 'Slots: ' + (s.slots || []).map(x => x.label + ' ' + (x.version || '(empty)') +
@@ -821,7 +866,20 @@ async function otaAction(path, confirmMsg) {
   if (confirmMsg && !confirm(confirmMsg)) return;
   try { await api('POST', path); setTimeout(loadOta, 300); } catch (err) { $('o-err').textContent = err.message; }
 }
-$('ota').addEventListener('input', () => { otaDirty = true; $('o-check').disabled = $('o-update').disabled = true; });
+let otaSaved = null, otaBusy = false;
+function otaChanged() {
+  const c = otaSaved;
+  return !!c && ($('o-url').value.trim() !== c.url || $('o-asset').value.trim() !== c.asset ||
+    $('o-auto').checked !== !!c.auto_update || +$('o-int').value !== c.interval_h);
+}
+/* Save only with unsaved changes; Check / Update only for the stored source (not while it is being edited) */
+function updOtaButtons() {
+  $('o-save').disabled = !otaDirty;
+  $('o-check').disabled = $('o-update').disabled = otaBusy || !otaSaved || !otaSaved.url || otaDirty;
+}
+function updOtaDirty() { otaDirty = otaChanged(); updOtaButtons(); }
+$('ota').addEventListener('input', updOtaDirty);
+$('ota').addEventListener('change', updOtaDirty);
 $('o-check').onclick = () => otaAction('/api/ota/check');
 $('o-rollback').onclick = () => otaAction('/api/ota/rollback', 'Switch back to the previous firmware and reboot? The current version will not be installed automatically again.');
 $('o-update').onclick = () => otaAction('/api/ota/update', 'Download and install the newest firmware if it is newer than the running one? The device reboots afterwards.');

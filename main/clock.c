@@ -9,6 +9,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
 #include "settings.h"
+#include "wifi_mgr.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "clock";
@@ -21,11 +22,18 @@ static const char *TAG = "clock";
 
 #define VALID_EPOCH 1704067200   /* 2024-01-01: anything earlier means "never synchronized" */
 
+/* Sync schedule, enforced by our own timer instead of lwIP's (whose retries back off to 150 s):
+ * while the time is unsynchronized or older than SYNC_INTERVAL_S, a new request goes out every
+ * RETRY_S. esp_timer wakes the CPU from light sleep, so this also runs in standby. */
+#define SYNC_INTERVAL_S 3600
+#define RETRY_S         30
+
 static SemaphoreHandle_t s_lock;     /* config + TZ environment (tzset / localtime_r) */
 static clock_cfg_t s_cfg;
 static char s_sntp_server[CLOCK_SERVER_LEN]; /* SNTP keeps the pointer: only changed while stopped */
-static bool s_started;
+static volatile bool s_started;
 static volatile int64_t s_last_sync_us; /* 0 = none since boot */
+static esp_timer_handle_t s_sync_timer;
 
 static void lock(void) { xSemaphoreTake(s_lock, portMAX_DELAY); }
 static void unlock(void) { xSemaphoreGive(s_lock); }
@@ -115,10 +123,29 @@ static void sntp_start_locked(void)
     ESP_LOGI(TAG, "SNTP started with %s", s_sntp_server);
 }
 
+/* Every RETRY_S: request the time again when it is due (never synchronized, last attempt failed,
+ * or the last sync is SYNC_INTERVAL_S old). esp_sntp_restart() is thread-safe (runs in tcpip). */
+static void sync_check(void *arg)
+{
+    (void)arg;
+    if (!s_started || !wifi_mgr_connected()) return;
+    const int64_t since = clock_since_sync_s();
+    if (since >= 0 && since < SYNC_INTERVAL_S) return;
+    if (since < 0) ESP_LOGI(TAG, "no NTP sync yet: requesting time again");
+    else ESP_LOGI(TAG, "last NTP sync %lld s ago: requesting time", (long long)since);
+    esp_sntp_restart();
+}
+
 void clock_start(void)
 {
     lock();
     if (!s_started) sntp_start_locked();
+    if (!s_sync_timer) {
+        const esp_timer_create_args_t args = { .callback = sync_check, .name = "ntp_sync" };
+        esp_err_t err = esp_timer_create(&args, &s_sync_timer);
+        if (err == ESP_OK) err = esp_timer_start_periodic(s_sync_timer, (uint64_t)RETRY_S * 1000000);
+        if (err != ESP_OK) ESP_LOGW(TAG, "NTP sync timer failed: %s", esp_err_to_name(err));
+    }
     unlock();
 }
 

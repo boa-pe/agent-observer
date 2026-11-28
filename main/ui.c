@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 #include "display.h"
 #include "gfx.h"
+#include "font5x7.h"
 #include "agents.h"
 #include "wifi_mgr.h"
 #include "power.h"
@@ -727,18 +728,51 @@ static void draw_seconds_ring(int cx, int cy, int r, int th, bool ok, int step)
     gfx_fill_circle(px, py, th / 2 + 2, C_WHITE);
 }
 
-/* Clock digits "HH:MM": font pixels sx wide and sy tall (sy > sx gives tall, narrow digits), with a
- * compact colon: square dots of the digit stroke width and one unit of space on each side, instead
- * of the font's wide ':' cell. 25 units (of sx) wide, 7 units (of sy) high. */
+/* Inked columns of a glyph: first and last font column with any pixel set (0..4); false if blank. */
+static bool glyph_ink(char ch, int *first, int *last)
+{
+    unsigned u = (unsigned char)ch;
+    if (u < 32 || u > 126) u = '?';
+    const uint8_t *g = font5x7[u - 32];
+    int f = -1, l = -1;
+    for (int col = 0; col < 5; col++) {
+        if (g[col]) {
+            if (f < 0) f = col;
+            l = col;
+        }
+    }
+    *first = f;
+    *last = l;
+    return f >= 0;
+}
+
+/* Clock digits "H:MM" / "HH:MM": font pixels sx wide and sy tall (sy > sx gives tall, narrow digits),
+ * with a compact colon: square dots of the digit stroke width and one unit of space on each side,
+ * instead of the font's wide ':' cell. At most 25 units (of sx) wide, 7 units (of sy) high.
+ * Centred horizontally on display pixel column cx (the ring's centre) by the span of display pixels
+ * actually lit, so blank glyph columns (e.g. around "1") do not shift it. */
 #define CLOCK_TIME_UNITS_W 25
 static void draw_clock_time(int cx, int y, const char *hh, const char *mm, int sx, int sy, color_t c)
 {
-    const int x0 = cx - CLOCK_TIME_UNITS_W * sx / 2;
-    const int colon_x = x0 + 12 * sx;  /* "HH" is 11 units, then one unit of space */
+    const int hn = (int)strlen(hh), mn = (int)strlen(mm);
+    /* layout in display pixels, relative to the left edge of the first hour glyph cell */
+    const int colon_px = hn ? hn * 6 * sx : 0; /* hours, then one font pixel of space */
+    const int mm_px = colon_px + 2 * sx;       /* colon dot, then one font pixel of space */
+    int lit_l = colon_px, lit_r = colon_px + sx - 1; /* lit pixel columns (inclusive); the colon is always lit */
+    int f, l;
+    if (hn && glyph_ink(hh[0], &f, &l) && f * sx < lit_l) lit_l = f * sx;
+    if (mn && glyph_ink(mm[mn - 1], &f, &l)) {
+        const int r = mm_px + (mn - 1) * 6 * sx + (l + 1) * sx - 1;
+        if (r > lit_r) lit_r = r;
+    }
+    /* first lit column lands at cx - (w-1)/2: exact for an odd pixel width, half a pixel left otherwise */
+    const int w = lit_r - lit_l + 1;
+    const int x0 = cx - (w - 1) / 2 - lit_l;
+    const int colon_x = x0 + colon_px;
     gfx_text_xy(x0, y, hh, sx, sy, c);
     gfx_fill_rect(colon_x, y + 2 * sy + (sy - sx) / 2, sx, sx, c); /* centred on font rows 2 and 4 */
     gfx_fill_rect(colon_x, y + 4 * sy + (sy - sx) / 2, sx, sx, c);
-    gfx_text_xy(colon_x + 2 * sx, y, mm, sx, sy, c);
+    gfx_text_xy(x0 + mm_px, y, mm, sx, sy, c);
 }
 
 /* Standby clock: HH:MM inside a seconds ring, with the weekday, the date and the calendar week below it
@@ -758,7 +792,7 @@ static void draw_clock(uint32_t t)
             h %= 12;
             if (h == 0) h = 12;
         }
-        snprintf(hh, sizeof(hh), "%02d", h);
+        snprintf(hh, sizeof(hh), "%d", h);
         snprintf(mm, sizeof(mm), "%02d", tm.tm_min);
     }
     const bool landscape = DISP_W > DISP_H;
